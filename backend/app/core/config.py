@@ -27,6 +27,11 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # APScheduler nightly jobs (§1: in-process, no Celery/Redis for v1).
+    # Off by default under pytest (see tests/conftest.py) so test runs don't
+    # spin up a background thread scheduling a 2 AM cron job.
+    enable_background_jobs: bool = True
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None

@@ -3,6 +3,7 @@ import uuid
 
 os.environ.setdefault("RMS_DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("RMS_JWT_SECRET_KEY", "test-secret")
+os.environ.setdefault("RMS_ENABLE_BACKGROUND_JOBS", "false")
 
 import pytest
 from fastapi.testclient import TestClient

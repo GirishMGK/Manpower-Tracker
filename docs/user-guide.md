@@ -1,9 +1,10 @@
-# User Guide — current build (Phases P0–P4)
+# User Guide — current build (Phases P0–P6)
 
 This covers what's actually usable today: authentication, master data,
-engagements, leave, the allocation/conflict-engine API, and the scheduler
-board. Dashboards and the report library (§7, §11) are not built yet — see
-the root `README.md` for the phase roadmap.
+engagements, leave, the allocation/conflict-engine API, the scheduler
+board, capacity utilisation, and the C1–C6 dashboards. The report library
+(§11), timesheets and forecasting are not built yet — see the root
+`README.md` for the phase roadmap.
 
 ## Running it locally
 
@@ -118,6 +119,27 @@ shift it a week, "Today" resets it.
   focus it) — all re-query the board server-side.
 - **Zoom**: Day/Week toggle in the toolbar; Week fits the whole 8-week
   window without horizontal scrolling.
+
+## Capacity and utilisation (§5)
+
+`GET /api/v1/capacity/utilisation?date_from=&date_to=` returns net/allocated/
+chargeable hours and utilisation % per staff member, reading only the
+materialised `capacity_daily` table — fast even across the whole staff list
+and a long date range. That table refreshes itself nightly and on every
+allocation/leave change; `POST /api/v1/capacity/recompute` (Admin/RM only)
+forces a rebuild for a range, useful right after a bulk import.
+
+## Dashboards (§7.1)
+
+`/dashboards` — six charts (C1 headcount by office × category, C2 office ×
+grade heatmap, C3 partner-wise FTE, C4 partner portfolio bubble, C5
+department FTE donut + trend, C6 department × grade), all driven by the
+same filter bar at the top (date range, office, department, partner,
+client group, staff category). Click any bar, heatmap cell, or bubble to
+drill through to the underlying staff/allocation records. Every chart card
+has two export buttons: the download icon exports a formatted `.xlsx`
+(Indian number format, frozen header), the image icon exports the chart
+itself as a `.png`.
 
 ## Nothing is ever hard-deleted (§0.1)
 

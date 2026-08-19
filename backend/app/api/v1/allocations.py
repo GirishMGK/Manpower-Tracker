@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
@@ -18,12 +18,25 @@ from app.schemas.allocation import (
     AllocationValidateResponse,
     RuleViolationOut,
 )
+from app.services.capacity_materializer import recompute_range
 from app.services.conflict_engine import AllocationCandidate, has_blocking, validate_allocation
 
 router = APIRouter()
 
 APPROVER_ROLES = (UserRole.ADMIN, UserRole.RESOURCE_MANAGER, UserRole.PARTNER)
 WRITE_ROLES = (UserRole.ADMIN, UserRole.RESOURCE_MANAGER, UserRole.PARTNER, UserRole.MANAGER)
+
+
+def _invalidate_capacity(db: Session, staff_id: uuid.UUID, *date_strs: str) -> None:
+    """§5: recompute capacity_daily synchronously for every allocation mutation.
+
+    Spans the union of all given dates (old + new, on a move) padded by a
+    day so a booking that moved off a date still clears that date's cache.
+    """
+    dates = [datetime.strptime(d, "%Y-%m-%d").date() for d in date_strs if d]
+    if not dates:
+        return
+    recompute_range(db, min(dates) - timedelta(days=1), max(dates) + timedelta(days=1), staff_ids=[staff_id])
 
 
 def _candidate_from(payload, exclude_id: uuid.UUID | None = None) -> AllocationCandidate:
@@ -138,6 +151,7 @@ def create_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return row
 
 
@@ -184,6 +198,7 @@ def update_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, before.date_from, before.date_to, row.date_from, row.date_to)
     return row
 
 
@@ -210,6 +225,7 @@ def approve_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return row
 
 
@@ -238,4 +254,5 @@ def cancel_allocation(
         before=before, after=row, ip=get_client_ip(request), user_agent=request.headers.get("user-agent"),
     )
     db.commit()
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return {"status": "cancelled", "id": str(allocation_id)}

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
@@ -11,10 +11,18 @@ from app.models.allocation import Allocation, NonAvailability
 from app.models.enums import AllocationStatus, AuditAction, UserRole
 from app.models.user import User
 from app.schemas.non_availability import NonAvailabilityCreate, NonAvailabilityRead
+from app.services.capacity_materializer import recompute_range
 
 router = APIRouter()
 
 APPROVER_ROLES = (UserRole.ADMIN, UserRole.RESOURCE_MANAGER, UserRole.PARTNER, UserRole.MANAGER)
+
+
+def _invalidate_capacity(db: Session, staff_id: uuid.UUID, date_from: str, date_to: str) -> None:
+    """§5: leave only affects net_capacity_hrs once APPROVED (or un-approved)."""
+    d_from = datetime.strptime(date_from, "%Y-%m-%d").date() - timedelta(days=1)
+    d_to = datetime.strptime(date_to, "%Y-%m-%d").date() + timedelta(days=1)
+    recompute_range(db, d_from, d_to, staff_ids=[staff_id])
 
 
 @router.get("", response_model=list[NonAvailabilityRead])
@@ -104,6 +112,7 @@ def approve_leave(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return row
 
 
@@ -128,6 +137,8 @@ def reject_leave(
     )
     db.commit()
     db.refresh(row)
+    if before.status == "APPROVED":  # was affecting capacity; no longer is
+        _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return row
 
 
@@ -154,4 +165,6 @@ def cancel_leave(
         before=before, after=row, ip=get_client_ip(request), user_agent=request.headers.get("user-agent"),
     )
     db.commit()
+    if before.status == "APPROVED":
+        _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return {"status": "cancelled", "id": str(leave_id)}

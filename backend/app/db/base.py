@@ -8,6 +8,7 @@ from sqlmodel import SQLModel
 
 from app.models import allocation  # noqa: F401
 from app.models import audit_log  # noqa: F401
+from app.models import capacity  # noqa: F401
 from app.models import client  # noqa: F401
 from app.models import engagement  # noqa: F401
 from app.models import reference  # noqa: F401

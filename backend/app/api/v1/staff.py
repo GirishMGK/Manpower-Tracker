@@ -23,6 +23,7 @@ def list_staff(
     limit: int = 100,
     office_id: uuid.UUID | None = None,
     department_id: uuid.UUID | None = None,
+    staff_category: str | None = None,
     q: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -32,6 +33,8 @@ def list_staff(
         stmt = stmt.where(Staff.base_office_id == office_id)
     if department_id:
         stmt = stmt.where(Staff.primary_department_id == department_id)
+    if staff_category:
+        stmt = stmt.where(Staff.staff_category == staff_category)
     if q:
         stmt = stmt.where(Staff.full_name.contains(q))  # type: ignore[union-attr]
     stmt = stmt.offset(skip).limit(limit)

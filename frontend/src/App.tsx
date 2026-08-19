@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
+import Dashboards from "@/pages/Dashboards";
 import Login from "@/pages/Login";
 import Scheduler from "@/pages/Scheduler";
 
@@ -27,6 +28,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Scheduler />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/dashboards"
+        element={
+          <RequireAuth>
+            <Dashboards />
           </RequireAuth>
         }
       />

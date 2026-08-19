@@ -1,4 +1,4 @@
-# Data Dictionary — Phase P0–P3
+# Data Dictionary — Phase P0–P6
 
 Full entity definitions live as SQLModel classes in `backend/app/models/`
 (one file per aggregate) — that source is authoritative; this page is a
@@ -26,6 +26,7 @@ extends §3 of the spec.
 | `resource_requests` | `models/allocation.py` | §3.13 | Schema only — fulfilment workflow lands in P8 |
 | `audit_log` | `models/audit_log.py` | §3.14 | Implemented, append-only, no delete route anywhere |
 | `users` | `models/user.py` | *not in spec* — see `docs/decisions.md` | Implemented |
+| `capacity_daily` | `models/capacity.py` | §5 (named explicitly, not in §3's table list) | Implemented — materialised, not user-editable; see below |
 
 ## Deviations / additions vs. §3 (see `docs/decisions.md` for rationale)
 
@@ -41,6 +42,30 @@ extends §3 of the spec.
 scheduler UI — they join allocation → engagement → client server-side so
 the board renders from one round trip instead of N+1 client-side joins.
 They're read-only projections over the same tables above; no new state.
+
+## `capacity_daily` (§5, Phase P5)
+
+One row per `(staff_id, date)`: `gross_capacity_hrs`, `leave_deduction_hrs`,
+`net_capacity_hrs`, `allocated_hrs`, `soft_allocated_hrs`, `chargeable_hrs`,
+`available_hrs`, `utilisation_pct`, `chargeable_util_pct`, `bench_flag`.
+Written only by `app/services/capacity_materializer.py::recompute_range` —
+nightly (rolling 30-days-back/180-days-forward window) and synchronously on
+every allocation/leave mutation. Every report/dashboard reads this table,
+never raw allocations, for anything beyond a single validate-time check
+(§5: "Reports must never recompute from raw allocations at query time for
+ranges > 90 days"). The PK column is named `capacity_date`, not `date` —
+a field named the same as its own type annotation breaks SQLModel/pydantic's
+model construction.
+
+## Dashboard read models (§7.1, Phase P6)
+
+C3–C6 all read from one shared computation,
+`app/services/dashboard.py::fetch_allocation_fte_rows`: one row per
+(allocation, filters) with `fte = (allocation_pct/100) × (overlap_days /
+period_days)` already computed, plus every dimension (grade, office,
+department, partner, client, client_group, risk_rating) a chart might
+group by. C1/C2 are headcount snapshots and query `staff` directly instead
+— no FTE math involved. No new tables; these are response shapes only.
 
 ## RBAC column masking (§2)
 
