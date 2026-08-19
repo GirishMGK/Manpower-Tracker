@@ -1,8 +1,8 @@
-# User Guide — current build (Phases P0–P3)
+# User Guide — current build (Phases P0–P4)
 
 This covers what's actually usable today: authentication, master data,
-engagements, leave, and the allocation/conflict-engine API. The scheduler
-board, dashboards and report library (§6, §7, §11) are not built yet — see
+engagements, leave, the allocation/conflict-engine API, and the scheduler
+board. Dashboards and the report library (§7, §11) are not built yet — see
 the root `README.md` for the phase roadmap.
 
 ## Running it locally
@@ -90,6 +90,34 @@ Every endpoint is guarded by role at the route level
 (`app/core/deps.py::require_roles`). Fee/cost/margin fields don't 403 for
 roles without financial visibility (`MANAGER`, `STAFF`, `HR`, `VIEWER`) —
 they come back as `null` on an otherwise-normal `200` response.
+
+## The scheduler board (§6.1)
+
+Log in and click "Open scheduler board" (or go straight to `/schedule`).
+Staff rows are grouped by office → department, collapsible by clicking the
+group header. Defaults to an 8-week window; `←`/`→` or the toolbar arrows
+shift it a week, "Today" resets it.
+
+- **Book someone**: click an empty cell in their row. Search for the
+  engagement by client name or code, pick a role/%/dates, then "Check for
+  conflicts" — this calls the same `/allocations/validate` the API uses,
+  so what you see is exactly what would block or need an override reason
+  at save time.
+- **Move or resize a booking**: drag the middle of a bar to move it, or
+  either edge to resize. It recolors live while dragging (red = would
+  block, amber = would need an override) from the same validate call,
+  debounced. Dropping on a clean slot commits immediately; dropping on a
+  BLOCK reverts with a toast explaining why; dropping on a WARN reopens the
+  edit form with the new dates so you type the override reason explicitly
+  — nothing is ever silently overridden by a drag.
+- **Edit or cancel**: click an existing bar to open it in edit mode;
+  "Cancel booking" requires a reason, same as the API.
+  `Ctrl+Z`/`Ctrl+Shift+Z` undo/redo the last 20 scheduler actions (each
+  replays the real API call, not just local UI state).
+- **Filters**: office, department, and a staff-name search box (`/` to
+  focus it) — all re-query the board server-side.
+- **Zoom**: Day/Week toggle in the toolbar; Week fits the whole 8-week
+  window without horizontal scrolling.
 
 ## Nothing is ever hard-deleted (§0.1)
 

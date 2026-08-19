@@ -34,6 +34,14 @@ extends §3 of the spec.
 - `engagement_code`, `client_code`, `employee_code` all enforced unique at
   the DB level, which the importer's idempotent upsert (§10) relies on.
 
+## Scheduler read models (§6.1, Phase P4)
+
+`GET /api/v1/scheduler/board` and `GET /api/v1/scheduler/engagements-lookup`
+(`app/api/v1/scheduler.py`) are purpose-built response shapes for the
+scheduler UI — they join allocation → engagement → client server-side so
+the board renders from one round trip instead of N+1 client-side joins.
+They're read-only projections over the same tables above; no new state.
+
 ## RBAC column masking (§2)
 
 Implemented via response-schema post-processing, not query-level

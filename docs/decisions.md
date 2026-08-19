@@ -94,6 +94,14 @@ rework anyway.
   optional `?hard=true` query flag that always 405s — there is no route
   that can perform a real hard delete. The bare `DELETE` (no flag)
   soft-deletes. See `app/core/soft_delete.py`.
+- **Login email validation uses a plain syntactic regex, not pydantic's
+  `EmailStr`.** `email-validator` (which backs `EmailStr`) rejects
+  "special-use or reserved" TLDs — `.local`, `.test`, `.internal` — by
+  default. That's exactly what an on-premise firm's internal mail domain
+  looks like (§0.4), and login is an internal identifier, not something
+  we're checking deliverability for. Found via manual browser testing
+  against the seed data's `@firm.local` demo accounts (P4 verification);
+  regression-tested in `tests/test_auth.py`.
 - **The Postgres `EXCLUDE` constraint** (§3.8) only guards the exact case
   it can express — two 100%, CONFIRMED/IN_PROGRESS bookings overlapping.
   Partial-percentage overlaps (two 50% bookings, a 50%+60%, etc.) are

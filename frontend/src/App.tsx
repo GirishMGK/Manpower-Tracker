@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
+import Scheduler from "@/pages/Scheduler";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -18,6 +19,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Dashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/schedule"
+        element={
+          <RequireAuth>
+            <Scheduler />
           </RequireAuth>
         }
       />

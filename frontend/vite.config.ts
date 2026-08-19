@@ -6,6 +6,9 @@ export default defineConfig({
   resolve: {
     alias: { "@": "/src" },
   },
+  test: {
+    environment: "jsdom",
+  },
   server: {
     port: 5173,
     proxy: {

@@ -15,7 +15,7 @@ silently, so you'll know if you're about to double-seed.
 import random
 from datetime import date, timedelta
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.security import hash_password
 from app.db.session import engine, init_db
@@ -245,6 +245,13 @@ def seed(session: Session) -> None:
         dept = departments[i % len(departments)]
         fy = FY_LIST[i % 2]
         ep = partners[i % len(partners)]
+        fy_start = date(2026, 4, 1) if fy == "FY2025-26" else date(2027, 4, 1)
+        # Stagger start dates across the year and vary duration so allocations
+        # don't all pile onto one identical 6-month window (that produced an
+        # unrealistically dense, all-staff-double-booked board when every
+        # engagement shared the same planned_start/planned_end).
+        p_start = fy_start + timedelta(days=(i * 11) % 300)
+        p_end = p_start + timedelta(days=random.randrange(30, 120))
         e = Engagement(
             engagement_code=f"{dept.code}/{client.client_code}/{fy.replace('FY', '')}-{i+1:04d}",
             client_id=client.id,
@@ -260,8 +267,8 @@ def seed(session: Session) -> None:
             budget_hours_total=float(random.randrange(80, 1200)),
             reporting_deadline=(date(2026, 9, 30) if fy == "FY2025-26" else date(2027, 9, 30)).isoformat(),
             status=random.choice(list(EngagementStatus)),
-            planned_start=date(2026, 4, 1).isoformat(),
-            planned_end=date(2026, 9, 30).isoformat(),
+            planned_start=p_start.isoformat(),
+            planned_end=p_end.isoformat(),
         )
         session.add(e)
         engagements.append(e)
@@ -315,6 +322,10 @@ def seed(session: Session) -> None:
         (f"{qualified_and_articles[0].employee_code.lower()}@firm.local", UserRole.MANAGER, qualified_and_articles[0].id),
     ]
     for email, role, staff_id in demo_users:
+        # Skip rather than collide if app/jobs/startup_seed.py already created admin@firm.local
+        # (or this script is re-run) — see the module docstring's "idempotent-ish" note.
+        if session.exec(select(User).where(User.email == email)).first():
+            continue
         session.add(User(email=email, hashed_password=hash_password("Demo@2026"), role=role, full_name=email.split("@")[0], staff_id=staff_id))
     session.commit()
 
