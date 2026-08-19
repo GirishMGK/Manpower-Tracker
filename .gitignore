@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.db
+backend/firm_rms_dev.db
+
+# Node
+node_modules/
+dist/
+frontend/dist/
+*.tsbuildinfo
+
+# Env
+.env
+*.env.local
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Alembic/pytest caches
+.pytest_cache/
+.mypy_cache/
