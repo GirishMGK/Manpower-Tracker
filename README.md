@@ -8,7 +8,7 @@ forensic engagements. Built per the phased spec at the root of this repo's
 originating build prompt (§0–§16); see `docs/decisions.md` for the
 assumptions made where the spec deferred to firm-specific answers.
 
-## Status: Phases P0–P6 complete
+## Status: Phases P0–P7 complete
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -19,22 +19,23 @@ assumptions made where the spec deferred to firm-specific answers.
 | P4 | Scheduler board (drag/drop/resize, filters, grouping, heat shading, live validation) | ✅ |
 | P5 | Capacity materialisation (`capacity_daily`), nightly job, sync invalidation | ✅ |
 | P6 | Dashboards C1–C6 + drill-through + Excel/PNG export | ✅ |
-| P7 | Report library RP-01..RP-09 | not started |
+| P7 | Report library RP-01..RP-09 + Excel/PDF export | ✅ |
 | P8 | Rules R10–R24, independence workflow, resource requests, notifications | not started |
 | P9 | Timesheets, actuals, margin | not started |
 | P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | not started |
 | P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | not started |
 
-35 backend tests + 12 frontend unit tests pass, covering acceptance tests
+41 backend tests + 12 frontend unit tests pass, covering acceptance tests
 T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14,
 T15 depend on roll-forward/full-FY report-performance work that hasn't
-started yet — see `docs/business-rules.md` and the phase table above). Both
-the scheduler board (P4) and the dashboards (P6) were additionally verified
-by scripted browser interaction (Playwright) against the real API and a
-300-staff seeded dataset — not just reviewed as code. For P6 specifically:
-all 6 charts rendering real aggregated data, office-filter narrowing every
-chart in sync, drill-through opening the correct underlying records, and
-both Excel and PNG export firing real downloads.
+started yet — see `docs/business-rules.md` and the phase table above). The
+scheduler board (P4), dashboards (P6) and report library (P7) were all
+additionally verified by scripted browser interaction (Playwright) against
+the real API and a 300-staff seeded dataset — not just reviewed as code.
+That process caught and fixed several real bugs along the way (a UUID
+type-coercion bug in login/lookups, an Excel sheet-name restriction, a
+`capacity_daily` gap for directly-seeded data, and raw UUIDs leaking into
+report tables instead of the paired name field) — see `docs/decisions.md`.
 
 ## Quick start
 
@@ -44,14 +45,14 @@ See `docs/user-guide.md` for full instructions. Fastest path:
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                                  # 35 passed
+pytest                                  # 41 passed
 python -m app.jobs.startup_seed         # admin@firm.local / ChangeMe!2026
 uvicorn app.main:app --reload           # http://localhost:8000/docs
 
 cd ../frontend
 npm install
 npm test                                # 12 passed
-npm run dev                             # http://localhost:5173 -> /schedule, /dashboards
+npm run dev                             # http://localhost:5173 -> /schedule, /dashboards, /reports
 ```
 
 Or the full stack with Postgres:
@@ -69,9 +70,9 @@ backend/
     core/         # config, security (JWT/bcrypt), deps (RBAC), audit, soft-delete
     models/       # SQLModel entities — one file per aggregate
     schemas/      # pydantic request/response, incl. RBAC field masking
-    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py
-    services/     # conflict_engine.py (R1-R9), capacity_materializer.py, capacity_report.py, dashboard.py
-    reports/      # excel_export.py — shared formatted-xlsx builder (Indian number format, frozen header)
+    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..09)
+    services/     # conflict_engine.py (R1-R9), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py
+    reports/      # excel_export.py + pdf_export.py — shared formatted xlsx/pdf builders (Indian number format)
     importers/    # two-phase Excel validate/commit
     jobs/         # boot-time bootstrap, capacity_job.py (nightly APScheduler recompute)
   alembic/        # migrations (0001 initial schema, 0002 Postgres EXCLUDE constraint)
@@ -79,11 +80,12 @@ backend/
   tests/          # pytest — acceptance tests named after their T-number in §14
 frontend/
   src/
-    pages/        # Login, Dashboard, Scheduler (P4), Dashboards (P6)
+    pages/        # Login, Dashboard, Scheduler (P4), Dashboards (P6), Reports (P7)
     components/scheduler/   # SchedulerGrid (SVG board), BookingForm, FilterBar, colors/layout helpers
     components/dashboards/  # ChartCard, DashboardFilterBar, C1-C6 chart components, drill-through modals
+    components/reports/     # ReportFilterBar, generic ReportTable
     lib/          # API clients (axios), date helpers, undo/redo store, PNG export, Zustand auth store
-    types/        # scheduler.ts, dashboard.ts — shapes shared with the API
+    types/        # scheduler.ts, dashboard.ts, report.ts — shapes shared with the API
 docs/
   decisions.md          # §16 assumptions, recorded rather than blocking the build
   data-dictionary.md
@@ -172,6 +174,40 @@ Verified against the live API and the seeded 300-staff dataset: all 6
 charts render, the office filter narrows every chart in sync, clicking a
 bar/cell/point opens the correct drill-through record list, and both
 export buttons fire real file downloads.
+
+## Report library (P7)
+
+`/reports` — RP-01 through RP-09, one shared filter bar (§11's standard
+params: date range, office, department, partner, client group, staff
+category, status), a generic table that renders whatever columns a report
+returns, and Excel + PDF export on every report:
+
+- **RP-01** deployment register, **RP-02** engagement team composition,
+  **RP-04** partner portfolio (clients/engagements/fee/FTE/fee-per-FTE/
+  overdue-reports), **RP-05** office resourcing (headcount, FTE deployed,
+  inbound/outbound deputation, avg utilisation), **RP-08** article training
+  record (clients served, exposure diversity score, leave vs entitlement,
+  Form 103/108 status) and **RP-09** leave and absence all read allocations/
+  engagements/staff directly for their own row shape.
+- **RP-03** staff utilisation reads only `capacity_daily` (§5) — the same
+  materialised table P5 built, not raw allocations.
+- **RP-06** bench and availability also reads `capacity_daily`, flagging
+  any staff member with at least one fully-free working day in the window.
+- **RP-07** conflict and exception report reads `allocations.override_flags`
+  — literally the audit trail §4's WARN-override flow writes — making it
+  the ISQM/SQC1 evidence report by construction, not a bolted-on log.
+- **Export**: Excel reuses P6's `xlsxwriter` builder; PDF is new
+  (`app/reports/pdf_export.py`, reportlab platypus) — landscape A4, Indian
+  number formatting, a repeating header row, print-ready for a partner
+  meeting.
+
+Verified against the live API and the seeded dataset: all 9 reports render
+real rows (RP-07 is legitimately empty against the seed data specifically
+— seeding inserts allocations directly and bypasses the conflict engine,
+so no overrides ever get recorded; `tests/test_reports.py` proves the
+report itself works by recording a real override through the API first),
+filtering narrows results, and both export buttons produce valid files
+(`%PDF` header checked, not just a 200 status).
 
 ## Design principles this build holds to (§0)
 

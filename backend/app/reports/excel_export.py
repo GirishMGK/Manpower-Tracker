@@ -8,6 +8,7 @@ the format string given in §10.
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,7 +27,10 @@ class ColumnSpec:
 def build_formatted_workbook(rows: list[dict[str, Any]], columns: list[ColumnSpec], *, sheet_name: str = "Data") -> bytes:
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
-    ws = wb.add_worksheet(sheet_name[:31])
+    # Excel forbids [ ] : * ? / \ in a sheet name and caps it at 31 chars —
+    # report titles like "Location/Office Resourcing" hit this directly.
+    safe_sheet_name = re.sub(r"[\[\]:*?/\\]", "-", sheet_name)[:31] or "Data"
+    ws = wb.add_worksheet(safe_sheet_name)
 
     header_fmt = wb.add_format({"bold": True, "bg_color": "#0f172a", "font_color": "white", "border": 1})
     money_fmt = wb.add_format({"num_format": INDIAN_NUMBER_FORMAT})

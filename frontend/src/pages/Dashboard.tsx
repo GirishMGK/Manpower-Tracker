@@ -22,12 +22,18 @@ export default function Dashboard() {
         >
           Open dashboards →
         </Link>
+        <Link
+          to="/reports"
+          className="inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+        >
+          Open report library →
+        </Link>
       </div>
 
       <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
-        The report library (RP-01..RP-17), forecasting, timesheets and
-        mobile view land in later build phases (§13 P7, P9–P11). The
-        scheduler board and dashboards above are live.
+        Forecasting, timesheets and the mobile view land in later build
+        phases (§13 P9–P11). The scheduler board, dashboards and report
+        library above are live.
       </div>
     </div>
   );

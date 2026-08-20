@@ -1,10 +1,10 @@
-# User Guide — current build (Phases P0–P6)
+# User Guide — current build (Phases P0–P7)
 
 This covers what's actually usable today: authentication, master data,
 engagements, leave, the allocation/conflict-engine API, the scheduler
-board, capacity utilisation, and the C1–C6 dashboards. The report library
-(§11), timesheets and forecasting are not built yet — see the root
-`README.md` for the phase roadmap.
+board, capacity utilisation, the C1–C6 dashboards, and the RP-01..RP-09
+report library. Timesheets and forecasting are not built yet — see the
+root `README.md` for the phase roadmap.
 
 ## Running it locally
 
@@ -140,6 +140,22 @@ drill through to the underlying staff/allocation records. Every chart card
 has two export buttons: the download icon exports a formatted `.xlsx`
 (Indian number format, frozen header), the image icon exports the chart
 itself as a `.png`.
+
+## Report library (§11)
+
+`/reports` — pick a report from the sidebar (RP-01 Deployment Register
+through RP-09 Leave and Absence), set the shared filters at the top (date
+range, office, department, partner, client group, staff category,
+status), and the table updates. Every report has two export buttons:
+Excel (formatted, Indian number grouping, frozen header) and PDF
+(landscape, print-ready for a partner meeting). RP-03 (Staff Utilisation)
+and RP-06 (Bench and Availability) read from the same materialised
+`capacity_daily` table as `/api/v1/capacity/utilisation` — if you've just
+run a bulk import that bypassed the normal allocation/leave routes, run
+`POST /api/v1/capacity/recompute` first or these two reports may look
+stale. RP-07 (Conflict and Exception Report) only shows allocations saved
+with a recorded WARN override — nothing appears there until a scheduler
+booking has actually gone through that flow.
 
 ## Nothing is ever hard-deleted (§0.1)
 

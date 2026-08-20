@@ -10,6 +10,7 @@ from app.api.v1 import (
     engagements,
     masters,
     non_availability,
+    reports,
     scheduler,
     staff,
 )
@@ -29,3 +30,4 @@ api_router.include_router(admin_import.router, prefix="/admin/import", tags=["im
 api_router.include_router(scheduler.router, prefix="/scheduler", tags=["scheduler"])
 api_router.include_router(capacity.router, prefix="/capacity", tags=["capacity"])
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["dashboards"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])

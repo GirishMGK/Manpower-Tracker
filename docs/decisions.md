@@ -109,3 +109,24 @@ rework anyway.
   cannot express — that direction of R1 is enforced in
   `app/services/conflict_engine.py` at the service layer, which every
   write path (including `/allocations/validate`) goes through.
+- **`seed.seed_data.seed()` doesn't materialise `capacity_daily` by
+  default.** It inserts allocations directly via `session.add()` for
+  speed, bypassing the synchronous invalidation hook that lives in the
+  allocation/leave routers (§5) — so RP-03/RP-06 and anything else reading
+  `capacity_daily` would see an empty table after a fresh seed otherwise.
+  Found via live Playwright verification of the report library (P7):
+  RP-03 returned 300 correct rows when queried directly against the
+  service function and via `curl`, but 0 through a from-scratch seeded
+  dev instance. `seed()` now takes an optional `capacity_window` the CLI
+  entrypoint passes (a 180-day window around "today" — materialising the
+  full ~2-year span the seeded engagement dates can land in took over a
+  minute, too slow to have every test that calls `seed()` pay for it).
+- **Report tables never show a bare `*_id` in the UI.** Every RP function
+  returns a raw id (`staff_id`, `engagement_id`, ...) paired with a
+  human-readable field (`full_name`, `engagement_code`, ...) for API/
+  drill-through use; the frontend's generic `ReportTable` filters out any
+  `*_id`-suffixed key before rendering columns. Caught two real gaps this
+  way during P7 verification — RP-03 showed a raw `staff_id` column (no
+  full_name pairing issue, just an unfiltered display) and RP-07 returned
+  bare `engagement_id` with *no* readable pairing at all — fixed by
+  joining Engagement/Client into RP-07's rows.

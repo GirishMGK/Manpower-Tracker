@@ -3,6 +3,7 @@ import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
 import Dashboards from "@/pages/Dashboards";
 import Login from "@/pages/Login";
+import Reports from "@/pages/Reports";
 import Scheduler from "@/pages/Scheduler";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -36,6 +37,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Dashboards />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <RequireAuth>
+            <Reports />
           </RequireAuth>
         }
       />

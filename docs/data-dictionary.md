@@ -67,6 +67,19 @@ department, partner, client, client_group, risk_rating) a chart might
 group by. C1/C2 are headcount snapshots and query `staff` directly instead
 — no FTE math involved. No new tables; these are response shapes only.
 
+## Report library read models (§11, Phase P7)
+
+`app/services/reports.py` — one function per RP, each independent (unlike
+C3-C6's shared FTE computation, since every report has its own distinct
+row shape per §11's column list). Two exceptions reuse existing P5/P6
+work rather than re-deriving it: RP-03 calls
+`capacity_report.get_staff_utilisation` directly (same materialised
+`capacity_daily` table, same numbers `/api/v1/capacity/utilisation`
+returns), and RP-06 queries `capacity_daily` rows directly to find staff
+with at least one fully-free working day. No new tables; RP-07 reads
+`allocations.override_flags`, which is populated by the conflict engine's
+WARN-override flow (§4) — it's the audit trail already being written,
+not new state collected for reporting's sake.
 ## RBAC column masking (§2)
 
 Implemented via response-schema post-processing, not query-level
