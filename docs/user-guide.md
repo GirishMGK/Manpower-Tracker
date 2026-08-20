@@ -1,10 +1,11 @@
-# User Guide — current build (Phases P0–P7)
+# User Guide — current build (Phases P0–P8)
 
 This covers what's actually usable today: authentication, master data,
-engagements, leave, the allocation/conflict-engine API, the scheduler
-board, capacity utilisation, the C1–C6 dashboards, and the RP-01..RP-09
-report library. Timesheets and forecasting are not built yet — see the
-root `README.md` for the phase roadmap.
+engagements, leave, the allocation/conflict-engine API (R1–R24), the
+scheduler board, capacity utilisation, the C1–C6 dashboards, the
+RP-01..RP-09 + RP-13 report library, independence declarations, resource
+requests, and best-effort email notifications. Timesheets and forecasting
+are not built yet — see the root `README.md` for the phase roadmap.
 
 ## Running it locally
 
@@ -68,11 +69,14 @@ the existing record rather than duplicating it.
 
 ## The conflict engine (§4)
 
-`POST /api/v1/allocations/validate` runs R1–R9 against a proposed booking
-and returns violations without saving — this is what a future scheduler UI
-calls on every drag/drop. Each violation has a `severity`
-(`BLOCK`/`WARN`/`INFO`), and `overridable` + `override_role` tell you
-whether/how it can be pushed through.
+`POST /api/v1/allocations/validate` runs the full R1–R24 rule set against
+a proposed booking and returns violations without saving — this is what
+the scheduler board calls on every drag/drop/create. Each violation has a
+`severity` (`BLOCK`/`WARN`/`INFO`), and `overridable` + `override_role`
+tell you whether/how it can be pushed through. The `BookingForm` renders
+all three: red for BLOCK (save disabled), amber for WARN (an override
+reason input appears per rule; save enables once every WARN has one), and
+blue for INFO (shown, never blocks).
 
 Creating or updating an allocation (`POST`/`PATCH /api/v1/allocations`)
 runs the same check server-side:
@@ -120,6 +124,28 @@ shift it a week, "Today" resets it.
 - **Zoom**: Day/Week toggle in the toolbar; Week fits the whole 8-week
   window without horizontal scrolling.
 
+## Independence declarations (§3.12, §4, §9.4)
+
+`/api/v1/independence-declarations` — Admin/RM/Partner/Manager/HR can
+record a declaration (`POST`, staff + client + the threat checkboxes from
+§3.12). It's created with `is_conflicted=false` regardless of what's
+ticked; only a reviewer (Admin/Partner/HR) can set the final determination
+via `POST .../{id}/review`, which stamps `reviewed_by`. R5
+(`INDEPENDENCE_CONFLICT`) and R24 (`COOLING_OFF`) both read this table
+directly, so a reviewed conflict starts blocking/warning on new bookings
+immediately.
+
+## Resource requests (§3.13, §9.1)
+
+`/api/v1/resource-requests` — Admin/RM/Partner/Manager can raise a request
+against an engagement (grade, skills, office, dates, headcount). Link it
+to actual bookings with `POST .../{id}/fulfil` (`{"allocation_id": "..."}`,
+the allocation must belong to the same engagement); `status` moves
+OPEN → PARTIALLY_FILLED → FILLED automatically as fulfilments accumulate
+— there's no separate "mark filled" action, so status can't drift from
+what's actually booked. `POST .../{id}/reject` closes a request that
+won't be filled.
+
 ## Capacity and utilisation (§5)
 
 `GET /api/v1/capacity/utilisation?date_from=&date_to=` returns net/allocated/
@@ -144,18 +170,32 @@ itself as a `.png`.
 ## Report library (§11)
 
 `/reports` — pick a report from the sidebar (RP-01 Deployment Register
-through RP-09 Leave and Absence), set the shared filters at the top (date
-range, office, department, partner, client group, staff category,
-status), and the table updates. Every report has two export buttons:
-Excel (formatted, Indian number grouping, frozen header) and PDF
-(landscape, print-ready for a partner meeting). RP-03 (Staff Utilisation)
-and RP-06 (Bench and Availability) read from the same materialised
-`capacity_daily` table as `/api/v1/capacity/utilisation` — if you've just
-run a bulk import that bypassed the normal allocation/leave routes, run
+through RP-09 Leave and Absence, plus RP-13 Independence and Rotation),
+set the shared filters at the top (date range, office, department,
+partner, client group, staff category, status), and the table updates.
+Every report has two export buttons: Excel (formatted, Indian number
+grouping, frozen header) and PDF (landscape, print-ready for a partner
+meeting). RP-03 (Staff Utilisation) and RP-06 (Bench and Availability)
+read from the same materialised `capacity_daily` table as
+`/api/v1/capacity/utilisation` — if you've just run a bulk import that
+bypassed the normal allocation/leave routes, run
 `POST /api/v1/capacity/recompute` first or these two reports may look
 stale. RP-07 (Conflict and Exception Report) only shows allocations saved
 with a recorded WARN override — nothing appears there until a scheduler
-booking has actually gone through that flow.
+booking has actually gone through that flow. RP-13 (Independence and
+Rotation) is point-in-time, not date-ranged — it lists every active
+engagement's EP, EP tenure, rotation-due FY, EQCR, open independence
+conflicts and declaration status regardless of the date filter (accepted
+for consistency with the rest of the library, just not applied).
+
+## Notifications (§9)
+
+Confirming a booking (`POST /allocations/{id}/approve`) or cancelling one
+(`DELETE /allocations/{id}`) sends a best-effort email to the booked staff
+member. It's a no-op unless `RMS_SMTP_HOST` is set in the backend's `.env`
+— nothing to configure for local/dev use, and a down or unconfigured mail
+server never blocks the booking itself (the send happens after the write
+has already committed, and any failure is logged, not raised).
 
 ## Nothing is ever hard-deleted (§0.1)
 

@@ -8,7 +8,7 @@ forensic engagements. Built per the phased spec at the root of this repo's
 originating build prompt (§0–§16); see `docs/decisions.md` for the
 assumptions made where the spec deferred to firm-specific answers.
 
-## Status: Phases P0–P7 complete
+## Status: Phases P0–P8 complete
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -20,22 +20,26 @@ assumptions made where the spec deferred to firm-specific answers.
 | P5 | Capacity materialisation (`capacity_daily`), nightly job, sync invalidation | ✅ |
 | P6 | Dashboards C1–C6 + drill-through + Excel/PNG export | ✅ |
 | P7 | Report library RP-01..RP-09 + Excel/PDF export | ✅ |
-| P8 | Rules R10–R24, independence workflow, resource requests, notifications | not started |
+| P8 | Rules R10–R24, independence workflow, resource requests, RP-13, notifications | ✅ |
 | P9 | Timesheets, actuals, margin | not started |
 | P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | not started |
 | P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | not started |
 
-41 backend tests + 12 frontend unit tests pass, covering acceptance tests
+67 backend tests + 12 frontend unit tests pass, covering acceptance tests
 T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14,
 T15 depend on roll-forward/full-FY report-performance work that hasn't
-started yet — see `docs/business-rules.md` and the phase table above). The
-scheduler board (P4), dashboards (P6) and report library (P7) were all
-additionally verified by scripted browser interaction (Playwright) against
-the real API and a 300-staff seeded dataset — not just reviewed as code.
-That process caught and fixed several real bugs along the way (a UUID
-type-coercion bug in login/lookups, an Excel sheet-name restriction, a
-`capacity_daily` gap for directly-seeded data, and raw UUIDs leaking into
-report tables instead of the paired name field) — see `docs/decisions.md`.
+started yet — see `docs/business-rules.md` and the phase table above),
+plus unit coverage for all of R10–R24, independence declarations, resource
+requests, RP-13 and the notification service. The scheduler board (P4),
+dashboards (P6), report library (P7) and the new WARN/INFO rules (P8) were
+all additionally verified by scripted browser interaction (Playwright)
+against the real API and a 300-staff seeded dataset — not just reviewed as
+code. That process caught and fixed several real bugs along the way (a
+UUID type-coercion bug in login/lookups, an Excel sheet-name restriction, a
+`capacity_daily` gap for directly-seeded data, raw UUIDs leaking into
+report tables instead of the paired name field, and — in P8 — the
+scheduler's booking form silently dropping INFO-severity violations
+instead of rendering them) — see `docs/decisions.md`.
 
 ## Quick start
 
@@ -45,7 +49,7 @@ See `docs/user-guide.md` for full instructions. Fastest path:
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                                  # 41 passed
+pytest                                  # 67 passed
 python -m app.jobs.startup_seed         # admin@firm.local / ChangeMe!2026
 uvicorn app.main:app --reload           # http://localhost:8000/docs
 
@@ -70,8 +74,8 @@ backend/
     core/         # config, security (JWT/bcrypt), deps (RBAC), audit, soft-delete
     models/       # SQLModel entities — one file per aggregate
     schemas/      # pydantic request/response, incl. RBAC field masking
-    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..09)
-    services/     # conflict_engine.py (R1-R9), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py
+    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..09, RP-13), independence.py, resource_requests.py
+    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py
     reports/      # excel_export.py + pdf_export.py — shared formatted xlsx/pdf builders (Indian number format)
     importers/    # two-phase Excel validate/commit
     jobs/         # boot-time bootstrap, capacity_job.py (nightly APScheduler recompute)
@@ -209,14 +213,55 @@ report itself works by recording a real override through the API first),
 filtering narrows results, and both export buttons produce valid files
 (`%PDF` header checked, not just a 200 status).
 
+## Phase P8 — rules R10–R24, independence/resource-request workflow, RP-13, notifications
+
+- **Conflict engine**: all fourteen remaining rules from §4 —
+  `EQCR_MISSING`, `SKILL_GAP`, `GRADE_MIX_BREACH`, `ICAI_TRAINING_LIMIT`,
+  `ARTICLE_HOURS_BREACH`, `SUSTAINED_OVERLOAD`, `OUTSTATION_BREACH`,
+  `LOCATION_MISMATCH`, `BUDGET_OVERRUN`, `DEADLINE_RISK`,
+  `NO_EXPOSURE_DIVERSITY`, `EXITING_STAFF`, `UNAPPROVED_PIPELINE`,
+  `DUPLICATE_ROLE`, `COOLING_OFF` — same `check_*` shape and
+  `validate_allocation` orchestrator as R1–R9, so every existing call site
+  (`/allocations/validate`, `POST`/`PATCH /allocations`, the scheduler's
+  live drag-hover preview) picked them up with no caller changes. See
+  `docs/business-rules.md` for what each one checks and
+  `docs/decisions.md` for the handful that approximate a concept (a
+  secondment record, a notice-period start date, days remaining in a
+  cooling-off window) the fixed §3 schema doesn't store exactly as named.
+- **Independence declarations** (`/api/v1/independence-declarations`):
+  create records the threat checkboxes from §3.12 with `is_conflicted`
+  always false; only a review action (Admin/Partner/HR) can set the final
+  determination, so R5/R24 and RP-13 always have a named reviewer behind
+  any conflict they surface.
+- **Resource requests** (`/api/v1/resource-requests`): create against an
+  engagement, link real bookings via `/fulfil`, and `status` — OPEN →
+  PARTIALLY_FILLED → FILLED — is computed from the fulfilment list rather
+  than settable directly.
+- **RP-13** (Independence and Rotation): client, EP, EP tenure,
+  EP/firm rotation-due FY, EQCR, open conflicts, declaration status — one
+  row per active engagement, point-in-time rather than date-ranged like
+  the rest of the library.
+- **Notifications** (`app/services/notifications.py`): best-effort SMTP
+  email on allocation confirm/cancel, no-op unless `RMS_SMTP_HOST` is
+  configured, never blocks or rolls back the triggering write.
+
+Verified against the live API, the seeded dataset and the real scheduler
+UI (Playwright): unit tests for all 14 new rules plus the independence/
+resource-request/RP-13/notification flows (67 backend tests total), and a
+live scheduler check that deliberately hit three severities in one booking
+(`OVERALLOCATION` BLOCK, `EQCR_MISSING` + `SUSTAINED_OVERLOAD` WARN,
+`UNAPPROVED_PIPELINE` INFO) — which is how the scheduler's booking form
+was caught silently dropping INFO-severity violations (only BLOCK/WARN
+had a render branch) and fixed; see `docs/decisions.md`.
+
 ## Design principles this build holds to (§0)
 
 1. **Nothing is hard-deleted.** Every table soft-deletes; every mutation
    writes an `audit_log` row in the same transaction. No hard-delete code
    path exists anywhere — see `app/core/soft_delete.py` and T16.
-2. **The conflict engine is the product**, not the calendar UI. R1–R9 are
-   implemented and unit-tested against the exact scenarios in §14 (T1–T7);
-   R10–R24 follow in P8.
+2. **The conflict engine is the product**, not the calendar UI. All of
+   R1–R24 are implemented and unit-tested — R1–R9 against the exact
+   scenarios in §14 (T1–T7), R10–R24 (P8) against a targeted case per rule.
 3. **Excel in, Excel out.** Bulk import is two-phase (validate, then
    commit) with a row-level error report and an all-or-nothing default —
    see `app/importers/`.

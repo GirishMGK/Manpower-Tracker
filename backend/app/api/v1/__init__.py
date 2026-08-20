@@ -8,9 +8,11 @@ from app.api.v1 import (
     clients,
     dashboards,
     engagements,
+    independence,
     masters,
     non_availability,
     reports,
+    resource_requests,
     scheduler,
     staff,
 )
@@ -31,3 +33,5 @@ api_router.include_router(scheduler.router, prefix="/scheduler", tags=["schedule
 api_router.include_router(capacity.router, prefix="/capacity", tags=["capacity"])
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["dashboards"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(independence.router, prefix="/independence-declarations", tags=["independence"])
+api_router.include_router(resource_requests.router, prefix="/resource-requests", tags=["resource-requests"])

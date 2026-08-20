@@ -1,4 +1,4 @@
-# Data Dictionary — Phase P0–P6
+# Data Dictionary — Phase P0–P8
 
 Full entity definitions live as SQLModel classes in `backend/app/models/`
 (one file per aggregate) — that source is authoritative; this page is a
@@ -22,8 +22,8 @@ extends §3 of the spec.
 | `non_availability` | `models/allocation.py` | §3.9 | Implemented + approval workflow with conflict check |
 | `holiday_calendar` | `models/allocation.py` | §3.10 | Implemented |
 | `timesheets` | `models/allocation.py` | §3.11 | Schema only — workflow lands in P9 |
-| `independence_declarations` | `models/allocation.py` | §3.12 | Schema + read path (used by R5) — write/approval UI lands in P8 |
-| `resource_requests` | `models/allocation.py` | §3.13 | Schema only — fulfilment workflow lands in P8 |
+| `independence_declarations` | `models/allocation.py` | §3.12 | Implemented — CRUD + review workflow (`/api/v1/independence-declarations`, Phase P8); read path also feeds R5/R24 and RP-13 |
+| `resource_requests` | `models/allocation.py` | §3.13 | Implemented — CRUD + fulfilment workflow (`/api/v1/resource-requests`, Phase P8); `status` is derived from `fulfilment_allocation_ids` vs. `headcount`, not directly settable |
 | `audit_log` | `models/audit_log.py` | §3.14 | Implemented, append-only, no delete route anywhere |
 | `users` | `models/user.py` | *not in spec* — see `docs/decisions.md` | Implemented |
 | `capacity_daily` | `models/capacity.py` | §5 (named explicitly, not in §3's table list) | Implemented — materialised, not user-editable; see below |
@@ -67,7 +67,7 @@ department, partner, client, client_group, risk_rating) a chart might
 group by. C1/C2 are headcount snapshots and query `staff` directly instead
 — no FTE math involved. No new tables; these are response shapes only.
 
-## Report library read models (§11, Phase P7)
+## Report library read models (§11, Phase P7 + P8)
 
 `app/services/reports.py` — one function per RP, each independent (unlike
 C3-C6's shared FTE computation, since every report has its own distinct
@@ -80,6 +80,38 @@ with at least one fully-free working day. No new tables; RP-07 reads
 `allocations.override_flags`, which is populated by the conflict engine's
 WARN-override flow (§4) — it's the audit trail already being written,
 not new state collected for reporting's sake.
+
+RP-13 (Phase P8) is the one report that's deliberately *not* date-ranged
+in its row selection — independence/rotation are point-in-time facts, not
+a period metric, so it lists every active engagement regardless of
+`date_from`/`date_to` (those params are still accepted for consistency
+with the rest of the library, just unused). It reads
+`engagements` (EP/EQCR/rotation-due fields) joined with `clients`
+(PIE flag, client group) and `independence_declarations` (conflict/review
+status) — no new tables.
+
+## Conflict engine R10–R24 (Phase P8)
+
+All fourteen rules live in `app/services/conflict_engine.py` alongside
+R1–R9, same `check_*(db, cand, ...) -> RuleViolation | None` shape, same
+`validate_allocation` orchestrator. Two additive fields were added to
+`AllocationCandidate` (not persisted — mirrors the existing `Allocation`
+columns) to carry data the R1–R9 checks never needed: `office_id` (R16
+outstation cap, R17 location mismatch) and `work_location` (unused by any
+rule yet, carried for parity with the `Allocation`/`AllocationCreate`
+shape). See `docs/business-rules.md` for the full R10–R24 list and
+`docs/decisions.md` for where a rule approximates a concept the schema
+doesn't store exactly as named.
+
+## Notifications (§9, Phase P8)
+
+`app/services/notifications.py` — no new tables; a stateless best-effort
+SMTP send, no-op if `RMS_SMTP_HOST` is unset (the default in dev/test).
+Triggered from `app/api/v1/allocations.py` on `POST .../approve`
+(confirm) and `DELETE .../{id}` (cancel), emailing the booked staff
+member's `official_email`/`personal_email`. A failed or skipped send
+never blocks or rolls back the allocation write — it runs after the
+triggering transaction has already committed.
 ## RBAC column masking (§2)
 
 Implemented via response-schema post-processing, not query-level

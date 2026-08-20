@@ -128,6 +128,16 @@ _REPORTS: dict[str, tuple[str, callable, list[ColumnSpec]]] = {
             ColumnSpec("conflicts_caused", "Conflicts Caused", "number"),
         ],
     ),
+    "rp13": (
+        "Independence and Rotation", rpt.independence_and_rotation_report,
+        [
+            ColumnSpec("client_name", "Client"), ColumnSpec("engagement_code", "Engagement"),
+            ColumnSpec("ep_name", "Engagement Partner"), ColumnSpec("ep_tenure_years", "EP Tenure (yrs)", "number"),
+            ColumnSpec("ep_rotation_due_fy", "EP Rotation Due FY"), ColumnSpec("firm_rotation_due_fy", "Firm Rotation Due FY"),
+            ColumnSpec("eqcr_name", "EQCR"), ColumnSpec("open_conflicts", "Open Conflicts", "number"),
+            ColumnSpec("declaration_status", "Declaration Status"), ColumnSpec("is_pie", "PIE"),
+        ],
+    ),
 }
 
 

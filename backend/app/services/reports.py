@@ -543,3 +543,90 @@ def leave_and_absence(db: Session, date_from: date, date_to: date, f: ReportFilt
             }
         )
     return rows
+
+
+# ------------------------------------------------------------------ RP-13 --
+
+def independence_and_rotation_report(db: Session, date_from: date, date_to: date, f: ReportFilters) -> list[dict]:
+    """RP-13: client, EP, EP tenure, rotation due FY, EQCR, open conflicts, declaration status (§4 R5/R8/R24, §9.4).
+
+    One row per active engagement whose period overlaps the filter window —
+    the same "as of this window" convention as the other RP reports, even
+    though rotation/independence are point-in-time facts rather than a
+    date-ranged metric, so a partner meeting can filter it alongside
+    everything else in the library.
+    """
+    staff_by_id = _staff_lookup(db)
+    from app.models.allocation import IndependenceDeclaration
+
+    eng_stmt = select(Engagement, Client).join(Client, Engagement.client_id == Client.id).where(Engagement.is_active == True)  # noqa: E712
+    if f.department_id:
+        eng_stmt = eng_stmt.where(Engagement.department_id == f.department_id)
+    if f.partner_id:
+        eng_stmt = eng_stmt.where(Engagement.engagement_partner_id == f.partner_id)
+    if f.client_group_id:
+        eng_stmt = eng_stmt.where(Client.group_id == f.client_group_id)
+    if f.status:
+        eng_stmt = eng_stmt.where(Engagement.status == f.status)
+
+    engagements = list(db.exec(eng_stmt).all())
+    if not engagements:
+        return []
+
+    declarations = list(db.exec(select(IndependenceDeclaration).where(IndependenceDeclaration.is_active == True)).all())  # noqa: E712
+    decls_by_client: dict[uuid.UUID, list[IndependenceDeclaration]] = defaultdict(list)
+    for d in declarations:
+        decls_by_client[d.client_id].append(d)
+
+    def _fy_start_year(fy: str | None) -> int | None:
+        # "FY2026-27" -> 2026
+        if not fy or len(fy) < 6:
+            return None
+        try:
+            return int(fy[2:6])
+        except ValueError:
+            return None
+
+    rows = []
+    for engagement, client in engagements:
+        partner = staff_by_id.get(engagement.engagement_partner_id) if engagement.engagement_partner_id else None
+        eqcr = staff_by_id.get(engagement.eqcr_partner_id) if engagement.eqcr_partner_id else None
+
+        fy_start = _fy_start_year(engagement.financial_year)
+        ep_tenure_years = (
+            fy_start - engagement.first_year_of_appointment
+            if fy_start is not None and engagement.first_year_of_appointment is not None
+            else None
+        )
+
+        client_ids = {client.id}
+        if client.group_id:
+            client_ids |= {c.id for c in db.exec(select(Client).where(Client.group_id == client.group_id)).all()}
+        relevant_decls = [d for cid in client_ids for d in decls_by_client.get(cid, [])]
+        open_conflicts = sum(1 for d in relevant_decls if d.is_conflicted)
+
+        ep_decl = next(
+            (d for d in relevant_decls if partner and d.staff_id == partner.id and d.declaration_fy == engagement.financial_year),
+            None,
+        )
+        if ep_decl is None:
+            declaration_status = "Not Filed"
+        elif ep_decl.reviewed_by:
+            declaration_status = "Reviewed"
+        else:
+            declaration_status = "Pending Review"
+
+        rows.append(
+            {
+                "client_name": client.name, "engagement_code": engagement.engagement_code,
+                "ep_name": partner.full_name if partner else "",
+                "ep_tenure_years": ep_tenure_years,
+                "ep_rotation_due_fy": engagement.ep_rotation_due_fy,
+                "firm_rotation_due_fy": engagement.rotation_due_fy,
+                "eqcr_name": eqcr.full_name if eqcr else "",
+                "open_conflicts": open_conflicts,
+                "declaration_status": declaration_status,
+                "is_pie": client.is_pie,
+            }
+        )
+    return rows

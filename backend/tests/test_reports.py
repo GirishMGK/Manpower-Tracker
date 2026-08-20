@@ -4,7 +4,7 @@ from app.models.enums import UserRole
 from seed.seed_data import seed
 from tests.conftest import auth_headers, make_user
 
-REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)]
+REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)] + ["rp13"]
 
 
 def test_list_reports(client, session):
@@ -133,3 +133,38 @@ def test_rp09_leave_conflict_count(client, session):
     )
     row = next(r for r in resp.json() if r["staff_name"] == staff.full_name)
     assert row["conflicts_caused"] == 1
+
+
+def test_rp13_independence_and_rotation(client, session):
+    from app.models.allocation import IndependenceDeclaration
+    from tests.factories import make_client, make_department, make_engagement, make_staff
+
+    dept = make_department(session)
+    cl = make_client(session, is_pie=True)
+    engagement = make_engagement(
+        session, cl.id, dept.id, financial_year="FY2026-27", ep_rotation_due_fy="FY2025-26", first_year_of_appointment=2020,
+    )
+    partner = make_staff(session, staff_category="PARTNER", designation="PARTNER", grade_rank=2, icai_membership_no="555")
+    engagement.engagement_partner_id = partner.id
+    session.add(engagement)
+    session.add(
+        IndependenceDeclaration(
+            staff_id=partner.id, client_id=cl.id, declaration_fy="FY2026-27", is_conflicted=True, reviewed_by=partner.id,
+        )
+    )
+    session.commit()
+
+    make_user(session, UserRole.RESOURCE_MANAGER, email="rep6@x.com")
+    headers = auth_headers(client, "rep6@x.com")
+    resp = client.get(
+        "/api/v1/reports/rp13", headers=headers,
+        params={"date_from": "2026-09-01", "date_to": "2026-09-30"},
+    )
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["engagement_code"] == engagement.engagement_code)
+    assert row["ep_name"] == partner.full_name
+    assert row["ep_tenure_years"] == 6
+    assert row["ep_rotation_due_fy"] == "FY2025-26"
+    assert row["open_conflicts"] == 1
+    assert row["declaration_status"] == "Reviewed"
+    assert row["is_pie"] is True

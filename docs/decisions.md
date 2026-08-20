@@ -39,7 +39,9 @@ No firm-specific current entitlement position was available. Used the
 figures given directly in §4 (R13): secondment cap of 2 per principal,
 aggregate secondment ≤ 12 months. Both are `app_config` rows
 (`article_secondment_cap`, `article_secondment_months_cap`), editable
-without a redeploy. R13 itself lands in Phase P8.
+without a redeploy. R13 (implemented in Phase P8) approximates this
+against `SECONDMENT`-type `non_availability` rows, since the schema has no
+dedicated secondment record — see the P8 entry below.
 
 ## 5. Timesheets — existing system / historical import
 
@@ -130,3 +132,56 @@ rework anyway.
   full_name pairing issue, just an unfiltered display) and RP-07 returned
   bare `engagement_id` with *no* readable pairing at all — fixed by
   joining Engagement/Client into RP-07's rows.
+
+## Phase P8 — rule approximations against the existing schema
+
+Several of R10–R24 target a concept the spec names but the schema (fixed
+by §3, not renegotiated mid-build) doesn't store as a distinct field.
+Each is a deliberate, documented approximation rather than a schema
+change, and each is called out in the matching row of
+`docs/business-rules.md`:
+
+- **R13 `ICAI_TRAINING_LIMIT`** — there's no dedicated secondment table.
+  Approximated against `non_availability` rows of `type=SECONDMENT`:
+  aggregate approved days (÷30) against `article_secondment_months_cap`,
+  and a same-principal sibling count (via `staff.articleship_principal_id`
+  + `secondment_flag`) against `article_secondment_cap`.
+- **R21 `EXITING_STAFF`** ("booked past 80% of notice period") — the
+  schema has `staff.notice_period_end` but no `notice_start`. Approximated
+  against a standard 30-day notice length counted back from
+  `notice_period_end` (`STANDARD_NOTICE_PERIOD_DAYS` in
+  `conflict_engine.py`), not the staff member's actual contractual notice
+  length. Revisit if/when a real `notice_start` field is added.
+- **R24 `COOLING_OFF`** — `independence_declarations.held_employment_last_2yrs`
+  is a boolean, not a date the employment ended, so the check is
+  presence-based (any active declaration with the flag set) rather than
+  computing days remaining in the `cooling_off_months` window.
+- **R18 `BUDGET_OVERRUN`** — no per-allocation actual-hours figure exists
+  pre-timesheets (P9), so projected cost is estimated at 8 hrs/business-day
+  × `allocation_pct` × `staff.cost_rate_per_hour`, compared against
+  `engagement.fee_amount` via the `max_cost_ratio` config. Once P9 lands
+  actual timesheet hours, this should switch to actuals-to-date plus
+  forecast-remaining rather than a pure allocation-based estimate.
+- **R16/R17 `OUTSTATION_BREACH`/`LOCATION_MISMATCH`** need `office_id` on
+  the candidate booking. The conflict engine and `/allocations` API both
+  accept and check it, but the scheduler UI (P4) doesn't collect an office
+  per booking yet — so these two rules are fully exercised by the API/
+  import paths and unit tests, but won't fire from a scheduler drag/drop
+  until office selection is added to `BookingForm`.
+- **The scheduler's booking form dropped INFO-severity violations
+  entirely** (only BLOCK/WARN had a render branch) until this phase —
+  found via live Playwright verification of R10/R22 together (a
+  PIPELINE-status test engagement surfaced both an EQCR_MISSING WARN and
+  an UNAPPROVED_PIPELINE INFO in the same check). Fixed by adding a third,
+  non-blocking INFO panel to `BookingForm.tsx`.
+- **`independence_declarations.is_conflicted` is reviewer-set, not
+  self-declared.** `POST /independence-declarations` always creates with
+  `is_conflicted=false` regardless of the threat flags submitted; only
+  `POST .../{id}/review` (Admin/Partner/HR) can flip it, so there's always
+  a named reviewer of record for R5's BLOCK to point back to — matching
+  the audit-evidence posture of the rest of this build (§0.1).
+- **Resource request status is derived, not settable.** `status` on
+  `resource_requests` is computed from
+  `len(fulfilment_allocation_ids) vs. headcount` inside `/fulfil` — there's
+  no direct "set status" endpoint, so the field can't drift from what's
+  actually been booked against the request.

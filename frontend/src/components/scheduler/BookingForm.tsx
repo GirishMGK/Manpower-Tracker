@@ -69,6 +69,7 @@ export default function BookingForm({ staffId, staffLabel, initial, existingAllo
 
   const blocking = violations?.filter((v) => v.severity === "BLOCK") ?? [];
   const warnings = violations?.filter((v) => v.severity === "WARN") ?? [];
+  const infos = violations?.filter((v) => v.severity === "INFO") ?? [];
   const allWarningsResolved = warnings.every((w) => (overrideReasons[w.code] ?? "").trim().length > 0);
 
   async function handleSave() {
@@ -195,6 +196,11 @@ export default function BookingForm({ staffId, staffLabel, initial, existingAllo
                   />
                 </div>
               ))}
+            </div>
+          )}
+          {violations && infos.length > 0 && (
+            <div className="space-y-1 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+              {infos.map((v) => <div key={v.code}>ℹ️ {v.message}</div>)}
             </div>
           )}
           {violations && violations.length === 0 && (
