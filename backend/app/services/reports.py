@@ -15,12 +15,13 @@ from datetime import date, datetime
 
 from sqlmodel import Session, select
 
-from app.models.allocation import Allocation, NonAvailability
+from app.models.allocation import Allocation, NonAvailability, Timesheet
 from app.models.client import Client
 from app.models.engagement import Engagement
-from app.models.enums import AllocationStatus, StaffCategory
+from app.models.enums import AllocationStatus, StaffCategory, TimesheetStatus
 from app.models.reference import Department, Office, StaffSkill
 from app.models.staff import Staff
+from app.services.actuals import engagement_margin
 from app.services.capacity_report import get_staff_utilisation
 
 
@@ -627,6 +628,113 @@ def independence_and_rotation_report(db: Session, date_from: date, date_to: date
                 "open_conflicts": open_conflicts,
                 "declaration_status": declaration_status,
                 "is_pie": client.is_pie,
+            }
+        )
+    return rows
+
+
+# ------------------------------------------------------------------ RP-10 --
+
+def engagement_profitability(db: Session, date_from: date, date_to: date, f: ReportFilters) -> list[dict]:
+    """RP-10: fee, actual cost, margin, budget-vs-actual hours per engagement (§9, Phase P9).
+
+    Like RP-13, this is a to-date figure rather than a period slice: fee and
+    the out-of-pocket budget are whole-engagement numbers, so mixing them
+    with a date-ranged actual-cost slice would misstate margin_pct for
+    anything but the full engagement life. `date_from`/`date_to` are
+    accepted for consistency with the rest of the library but not applied
+    to the row selection (see `docs/decisions.md`). Only APPROVED
+    timesheets count as actuals — see `app/services/actuals.py`.
+    """
+    staff_by_id = _staff_lookup(db)
+
+    eng_stmt = select(Engagement, Client).join(Client, Engagement.client_id == Client.id).where(Engagement.is_active == True)  # noqa: E712
+    if f.department_id:
+        eng_stmt = eng_stmt.where(Engagement.department_id == f.department_id)
+    if f.partner_id:
+        eng_stmt = eng_stmt.where(Engagement.engagement_partner_id == f.partner_id)
+    if f.client_group_id:
+        eng_stmt = eng_stmt.where(Client.group_id == f.client_group_id)
+    if f.status:
+        eng_stmt = eng_stmt.where(Engagement.status == f.status)
+
+    rows = []
+    for engagement, client in db.exec(eng_stmt).all():
+        margin = engagement_margin(db, engagement.id)
+        if margin is None:
+            continue
+        partner = staff_by_id.get(engagement.engagement_partner_id) if engagement.engagement_partner_id else None
+        rows.append(
+            {
+                "client_name": client.name, "engagement_code": engagement.engagement_code,
+                "partner_name": partner.full_name if partner else "",
+                "fee_amount": margin.fee_amount, "actual_cost": margin.actual_cost,
+                "out_of_pocket_budget": margin.out_of_pocket_budget,
+                "margin_amount": margin.margin_amount, "margin_pct": margin.margin_pct,
+                "budget_hours_total": margin.budget_hours_total, "actual_hours": margin.actual_hours,
+                "hours_variance_pct": margin.hours_variance_pct, "status": engagement.status,
+            }
+        )
+    return rows
+
+
+# ------------------------------------------------------------------ RP-11 --
+
+def timesheet_summary(db: Session, date_from: date, date_to: date, f: ReportFilters) -> list[dict]:
+    """RP-11: staff x engagement hours by status within the date range (§9, Phase P9)."""
+    staff_by_id = _staff_lookup(db)
+    engagement_by_id = {e.id: e for e in db.exec(select(Engagement)).all()}
+    client_by_id = {c.id: c for c in db.exec(select(Client)).all()}
+
+    stmt = (
+        select(Timesheet)
+        .where(Timesheet.is_active == True)  # noqa: E712
+        .where(Timesheet.work_date >= date_from.isoformat())
+        .where(Timesheet.work_date <= date_to.isoformat())
+    )
+    if f.department_id:
+        engagement_ids = {e.id for e in engagement_by_id.values() if e.department_id == f.department_id}
+        stmt = stmt.where(Timesheet.engagement_id.in_(engagement_ids))  # type: ignore[attr-defined]
+
+    by_pair: dict[tuple[uuid.UUID, uuid.UUID], dict] = defaultdict(
+        lambda: {"hours_draft": 0.0, "hours_submitted": 0.0, "hours_approved": 0.0, "hours_rejected": 0.0, "chargeable_hours_approved": 0.0}
+    )
+    status_key = {
+        TimesheetStatus.DRAFT.value: "hours_draft", TimesheetStatus.SUBMITTED.value: "hours_submitted",
+        TimesheetStatus.APPROVED.value: "hours_approved", TimesheetStatus.REJECTED.value: "hours_rejected",
+    }
+    for ts in db.exec(stmt).all():
+        staff = staff_by_id.get(ts.staff_id)
+        if staff is None:
+            continue
+        if f.office_id and staff.base_office_id != f.office_id:
+            continue
+        if f.staff_category and staff.staff_category != f.staff_category:
+            continue
+        engagement = engagement_by_id.get(ts.engagement_id)
+        if f.partner_id and (engagement is None or engagement.engagement_partner_id != f.partner_id):
+            continue
+        client = client_by_id.get(engagement.client_id) if engagement else None
+        if f.client_group_id and (client is None or client.group_id != f.client_group_id):
+            continue
+        bucket = by_pair[(ts.staff_id, ts.engagement_id)]
+        key = status_key.get(ts.status)
+        if key:
+            bucket[key] += ts.hours
+        if ts.status == TimesheetStatus.APPROVED.value and ts.is_chargeable:
+            bucket["chargeable_hours_approved"] += ts.hours
+
+    rows = []
+    for (staff_id, engagement_id), totals in by_pair.items():
+        staff = staff_by_id.get(staff_id)
+        engagement = engagement_by_id.get(engagement_id)
+        client = client_by_id.get(engagement.client_id) if engagement else None
+        rows.append(
+            {
+                "staff_name": staff.full_name if staff else "", "employee_code": staff.employee_code if staff else "",
+                "engagement_code": engagement.engagement_code if engagement else "",
+                "client_name": client.name if client else "",
+                **{k: round(v, 2) for k, v in totals.items()},
             }
         )
     return rows

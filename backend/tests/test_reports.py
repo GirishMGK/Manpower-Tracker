@@ -4,7 +4,7 @@ from app.models.enums import UserRole
 from seed.seed_data import seed
 from tests.conftest import auth_headers, make_user
 
-REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)] + ["rp13"]
+REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)] + ["rp10", "rp11", "rp13"]
 
 
 def test_list_reports(client, session):
@@ -168,3 +168,54 @@ def test_rp13_independence_and_rotation(client, session):
     assert row["open_conflicts"] == 1
     assert row["declaration_status"] == "Reviewed"
     assert row["is_pie"] is True
+
+
+def test_rp10_engagement_profitability(client, session):
+    from app.models.allocation import Timesheet
+    from tests.factories import make_client, make_department, make_engagement, make_staff
+
+    dept = make_department(session)
+    cl = make_client(session)
+    engagement = make_engagement(
+        session, cl.id, dept.id, fee_amount=50000, out_of_pocket_budget=2000, budget_hours_total=40,
+    )
+    staff = make_staff(session, cost_rate_per_hour=800)
+    session.add(Timesheet(staff_id=staff.id, engagement_id=engagement.id, work_date="2026-09-01", hours=20, status="APPROVED"))
+    session.commit()
+
+    make_user(session, UserRole.RESOURCE_MANAGER, email="rep7@x.com")
+    headers = auth_headers(client, "rep7@x.com")
+    resp = client.get(
+        "/api/v1/reports/rp10", headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["engagement_code"] == engagement.engagement_code)
+    assert row["actual_cost"] == 16000
+    assert row["margin_amount"] == 50000 - 16000 - 2000
+    assert row["actual_hours"] == 20
+
+
+def test_rp11_timesheet_summary(client, session):
+    from app.models.allocation import Timesheet
+    from tests.factories import make_client, make_department, make_engagement, make_staff
+
+    dept = make_department(session)
+    cl = make_client(session)
+    engagement = make_engagement(session, cl.id, dept.id)
+    staff = make_staff(session)
+    session.add(Timesheet(staff_id=staff.id, engagement_id=engagement.id, work_date="2026-09-01", hours=8, status="APPROVED"))
+    session.add(Timesheet(staff_id=staff.id, engagement_id=engagement.id, work_date="2026-09-02", hours=4, status="SUBMITTED"))
+    session.commit()
+
+    make_user(session, UserRole.RESOURCE_MANAGER, email="rep8@x.com")
+    headers = auth_headers(client, "rep8@x.com")
+    resp = client.get(
+        "/api/v1/reports/rp11", headers=headers,
+        params={"date_from": "2026-09-01", "date_to": "2026-09-30"},
+    )
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["staff_name"] == staff.full_name)
+    assert row["hours_approved"] == 8
+    assert row["hours_submitted"] == 4
+    assert row["chargeable_hours_approved"] == 8

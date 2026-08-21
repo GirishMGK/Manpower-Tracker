@@ -15,6 +15,7 @@ from app.api.v1 import (
     resource_requests,
     scheduler,
     staff,
+    timesheets,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -35,3 +36,4 @@ api_router.include_router(dashboards.router, prefix="/dashboards", tags=["dashbo
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(independence.router, prefix="/independence-declarations", tags=["independence"])
 api_router.include_router(resource_requests.router, prefix="/resource-requests", tags=["resource-requests"])
+api_router.include_router(timesheets.router, prefix="/timesheets", tags=["timesheets"])

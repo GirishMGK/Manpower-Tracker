@@ -138,6 +138,27 @@ _REPORTS: dict[str, tuple[str, callable, list[ColumnSpec]]] = {
             ColumnSpec("declaration_status", "Declaration Status"), ColumnSpec("is_pie", "PIE"),
         ],
     ),
+    "rp10": (
+        "Engagement Profitability", rpt.engagement_profitability,
+        [
+            ColumnSpec("client_name", "Client"), ColumnSpec("engagement_code", "Engagement"),
+            ColumnSpec("partner_name", "Partner"), ColumnSpec("fee_amount", "Fee", "money"),
+            ColumnSpec("actual_cost", "Actual Cost", "money"), ColumnSpec("out_of_pocket_budget", "OOP Budget", "money"),
+            ColumnSpec("margin_amount", "Margin", "money"), ColumnSpec("margin_pct", "Margin %", "pct"),
+            ColumnSpec("budget_hours_total", "Budget Hrs", "number"), ColumnSpec("actual_hours", "Actual Hrs", "number"),
+            ColumnSpec("hours_variance_pct", "Hrs Variance %", "number"), ColumnSpec("status", "Status"),
+        ],
+    ),
+    "rp11": (
+        "Timesheet Summary", rpt.timesheet_summary,
+        [
+            ColumnSpec("staff_name", "Staff"), ColumnSpec("employee_code", "Code"),
+            ColumnSpec("engagement_code", "Engagement"), ColumnSpec("client_name", "Client"),
+            ColumnSpec("hours_draft", "Draft Hrs", "number"), ColumnSpec("hours_submitted", "Submitted Hrs", "number"),
+            ColumnSpec("hours_approved", "Approved Hrs", "number"), ColumnSpec("hours_rejected", "Rejected Hrs", "number"),
+            ColumnSpec("chargeable_hours_approved", "Chargeable Approved Hrs", "number"),
+        ],
+    ),
 }
 
 

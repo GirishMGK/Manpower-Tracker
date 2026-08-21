@@ -1,11 +1,12 @@
-# User Guide — current build (Phases P0–P8)
+# User Guide — current build (Phases P0–P9)
 
 This covers what's actually usable today: authentication, master data,
 engagements, leave, the allocation/conflict-engine API (R1–R24), the
 scheduler board, capacity utilisation, the C1–C6 dashboards, the
-RP-01..RP-09 + RP-13 report library, independence declarations, resource
-requests, and best-effort email notifications. Timesheets and forecasting
-are not built yet — see the root `README.md` for the phase roadmap.
+RP-01..RP-11 + RP-13 report library, independence declarations, resource
+requests, best-effort email notifications, and timesheets with actuals and
+engagement margin. Forecasting is not built yet — see the root `README.md`
+for the phase roadmap.
 
 ## Running it locally
 
@@ -146,6 +147,20 @@ OPEN → PARTIALLY_FILLED → FILLED automatically as fulfilments accumulate
 what's actually booked. `POST .../{id}/reject` closes a request that
 won't be filled.
 
+## Timesheets, actuals and margin (§9)
+
+`/api/v1/timesheets` — log time against an engagement (`staff_id`,
+`engagement_id`, `work_date`, `hours`, `is_chargeable`, optional
+`allocation_id`/`activity_code`/`narration`). New entries start `DRAFT`
+and are only editable in that state. `POST .../{id}/submit` moves to
+`SUBMITTED`; an approver (Admin/RM/Partner/Manager) then
+`POST .../{id}/approve` or `.../reject`. Staff and Manager logins can only
+act on their own timesheet rows (matched against their linked
+`staff_id`) — Admin/RM/Partner/HR can log or edit on anyone's behalf.
+Nothing counts as an actual until it's `APPROVED`: `DRAFT`/`SUBMITTED`/
+`REJECTED` hours don't feed margin, RP-10, or RP-11's approved-hours
+columns.
+
 ## Capacity and utilisation (§5)
 
 `GET /api/v1/capacity/utilisation?date_from=&date_to=` returns net/allocated/
@@ -170,23 +185,28 @@ itself as a `.png`.
 ## Report library (§11)
 
 `/reports` — pick a report from the sidebar (RP-01 Deployment Register
-through RP-09 Leave and Absence, plus RP-13 Independence and Rotation),
-set the shared filters at the top (date range, office, department,
-partner, client group, staff category, status), and the table updates.
-Every report has two export buttons: Excel (formatted, Indian number
-grouping, frozen header) and PDF (landscape, print-ready for a partner
-meeting). RP-03 (Staff Utilisation) and RP-06 (Bench and Availability)
-read from the same materialised `capacity_daily` table as
-`/api/v1/capacity/utilisation` — if you've just run a bulk import that
-bypassed the normal allocation/leave routes, run
-`POST /api/v1/capacity/recompute` first or these two reports may look
-stale. RP-07 (Conflict and Exception Report) only shows allocations saved
-with a recorded WARN override — nothing appears there until a scheduler
-booking has actually gone through that flow. RP-13 (Independence and
-Rotation) is point-in-time, not date-ranged — it lists every active
-engagement's EP, EP tenure, rotation-due FY, EQCR, open independence
-conflicts and declaration status regardless of the date filter (accepted
-for consistency with the rest of the library, just not applied).
+through RP-09 Leave and Absence, plus RP-10 Engagement Profitability,
+RP-11 Timesheet Summary and RP-13 Independence and Rotation), set the
+shared filters at the top (date range, office, department, partner,
+client group, staff category, status), and the table updates. Every
+report has two export buttons: Excel (formatted, Indian number grouping,
+frozen header) and PDF (landscape, print-ready for a partner meeting).
+RP-03 (Staff Utilisation) and RP-06 (Bench and Availability) read from the
+same materialised `capacity_daily` table as `/api/v1/capacity/utilisation`
+— if you've just run a bulk import that bypassed the normal
+allocation/leave routes, run `POST /api/v1/capacity/recompute` first or
+these two reports may look stale. RP-07 (Conflict and Exception Report)
+only shows allocations saved with a recorded WARN override — nothing
+appears there until a scheduler booking has actually gone through that
+flow. RP-13 (Independence and Rotation) is point-in-time, not date-ranged
+— it lists every active engagement's EP, EP tenure, rotation-due FY,
+EQCR, open independence conflicts and declaration status regardless of
+the date filter (accepted for consistency with the rest of the library,
+just not applied). RP-10 (Engagement Profitability) is the same way —
+fee and margin are to-date figures, not a period slice — while RP-11
+(Timesheet Summary) genuinely is date-ranged. Both RP-10 and RP-11 only
+count `APPROVED` timesheet hours; log time and get it approved
+(see above) before expecting either to show anything.
 
 ## Notifications (§9)
 

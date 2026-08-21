@@ -1,4 +1,4 @@
-# Data Dictionary — Phase P0–P8
+# Data Dictionary — Phase P0–P9
 
 Full entity definitions live as SQLModel classes in `backend/app/models/`
 (one file per aggregate) — that source is authoritative; this page is a
@@ -21,7 +21,7 @@ extends §3 of the spec.
 | `allocations` | `models/allocation.py` | §3.8 | Implemented, incl. Postgres `EXCLUDE` guard (alembic `0002`) |
 | `non_availability` | `models/allocation.py` | §3.9 | Implemented + approval workflow with conflict check |
 | `holiday_calendar` | `models/allocation.py` | §3.10 | Implemented |
-| `timesheets` | `models/allocation.py` | §3.11 | Schema only — workflow lands in P9 |
+| `timesheets` | `models/allocation.py` | §3.11 | Implemented — CRUD + DRAFT→SUBMITTED→APPROVED/REJECTED workflow (`/api/v1/timesheets`, Phase P9); only APPROVED rows count as actuals |
 | `independence_declarations` | `models/allocation.py` | §3.12 | Implemented — CRUD + review workflow (`/api/v1/independence-declarations`, Phase P8); read path also feeds R5/R24 and RP-13 |
 | `resource_requests` | `models/allocation.py` | §3.13 | Implemented — CRUD + fulfilment workflow (`/api/v1/resource-requests`, Phase P8); `status` is derived from `fulfilment_allocation_ids` vs. `headcount`, not directly settable |
 | `audit_log` | `models/audit_log.py` | §3.14 | Implemented, append-only, no delete route anywhere |
@@ -112,6 +112,36 @@ Triggered from `app/api/v1/allocations.py` on `POST .../approve`
 member's `official_email`/`personal_email`. A failed or skipped send
 never blocks or rolls back the allocation write — it runs after the
 triggering transaction has already committed.
+
+## Timesheets, actuals and margin (§9, Phase P9)
+
+`/api/v1/timesheets` — DRAFT → SUBMITTED → APPROVED/REJECTED, editable
+only in DRAFT. RBAC is finer than a flat role list: STAFF/MANAGER can only
+act on their own `Timesheet.staff_id` (checked against `User.staff_id`),
+ADMIN/RESOURCE_MANAGER/PARTNER/HR can log or edit on anyone's behalf, and
+approve/reject is restricted to ADMIN/RESOURCE_MANAGER/PARTNER/MANAGER.
+No new capability table — `timesheets` (§3.11) already had the shape
+needed; P9 adds the workflow on top of it.
+
+`app/services/actuals.py` reads only APPROVED timesheets — no new
+tables — to compute `ActualsSummary` (hours, chargeable hours, cost via
+`staff.cost_rate_per_hour`) per engagement or per staff, and
+`EngagementMargin` (fee − actual cost − out-of-pocket budget, plus
+budget-vs-actual hours variance) per engagement. RP-10 (Engagement
+Profitability) and RP-11 (Timesheet Summary) in the report library both
+read through this service rather than re-deriving the aggregation.
+
+RP-10/RP-11 fill the gap left after RP-01..RP-09 and RP-13: this session's
+retained context doesn't carry the original spec's verbatim §11 text for
+RP-10 through RP-12 or RP-14 through RP-17, so these two are scoped and
+named directly from the P9 deliverable ("timesheets, actuals, margin")
+rather than transcribed from a report definition — see `docs/decisions.md`.
+Like RP-13, RP-10 is a to-date figure, not a period slice: fee and the
+out-of-pocket budget are whole-engagement numbers, so it doesn't apply the
+report's date filter (accepted for parameter consistency, unused in the
+row selection). RP-11 *is* date-ranged, since a timesheet total genuinely
+is a period metric.
+
 ## RBAC column masking (§2)
 
 Implemented via response-schema post-processing, not query-level

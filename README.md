@@ -8,7 +8,7 @@ forensic engagements. Built per the phased spec at the root of this repo's
 originating build prompt (§0–§16); see `docs/decisions.md` for the
 assumptions made where the spec deferred to firm-specific answers.
 
-## Status: Phases P0–P8 complete
+## Status: Phases P0–P9 complete
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -21,21 +21,25 @@ assumptions made where the spec deferred to firm-specific answers.
 | P6 | Dashboards C1–C6 + drill-through + Excel/PNG export | ✅ |
 | P7 | Report library RP-01..RP-09 + Excel/PDF export | ✅ |
 | P8 | Rules R10–R24, independence workflow, resource requests, RP-13, notifications | ✅ |
-| P9 | Timesheets, actuals, margin | not started |
+| P9 | Timesheets, actuals, margin | ✅ |
 | P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | not started |
 | P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | not started |
 
-67 backend tests + 12 frontend unit tests pass, covering acceptance tests
+80 backend tests + 12 frontend unit tests pass, covering acceptance tests
 T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14,
 T15 depend on roll-forward/full-FY report-performance work that hasn't
 started yet — see `docs/business-rules.md` and the phase table above),
 plus unit coverage for all of R10–R24, independence declarations, resource
-requests, RP-13 and the notification service. The scheduler board (P4),
-dashboards (P6), report library (P7) and the new WARN/INFO rules (P8) were
-all additionally verified by scripted browser interaction (Playwright)
-against the real API and a 300-staff seeded dataset — not just reviewed as
-code. That process caught and fixed several real bugs along the way (a
-UUID type-coercion bug in login/lookups, an Excel sheet-name restriction, a
+requests, RP-10/RP-11/RP-13, the notification service, and the P9
+timesheet/actuals/margin workflow. The scheduler board (P4), dashboards
+(P6), report library (P7) and the new WARN/INFO rules (P8) were
+additionally verified by scripted browser interaction (Playwright) against
+the real API and a 300-staff seeded dataset; P9 was verified the same way
+minus the browser step, since it's a backend-only phase (no scheduler/
+dashboard/report UI changes) — a real seeded server, curl end to end
+through create → submit → approve → RP-10/RP-11 export, not just tests.
+That process caught and fixed several real bugs along the way (a UUID
+type-coercion bug in login/lookups, an Excel sheet-name restriction, a
 `capacity_daily` gap for directly-seeded data, raw UUIDs leaking into
 report tables instead of the paired name field, and — in P8 — the
 scheduler's booking form silently dropping INFO-severity violations
@@ -49,7 +53,7 @@ See `docs/user-guide.md` for full instructions. Fastest path:
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                                  # 67 passed
+pytest                                  # 80 passed
 python -m app.jobs.startup_seed         # admin@firm.local / ChangeMe!2026
 uvicorn app.main:app --reload           # http://localhost:8000/docs
 
@@ -74,8 +78,8 @@ backend/
     core/         # config, security (JWT/bcrypt), deps (RBAC), audit, soft-delete
     models/       # SQLModel entities — one file per aggregate
     schemas/      # pydantic request/response, incl. RBAC field masking
-    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..09, RP-13), independence.py, resource_requests.py
-    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py
+    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..11, RP-13), independence.py, resource_requests.py, timesheets.py
+    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py, actuals.py
     reports/      # excel_export.py + pdf_export.py — shared formatted xlsx/pdf builders (Indian number format)
     importers/    # two-phase Excel validate/commit
     jobs/         # boot-time bootstrap, capacity_job.py (nightly APScheduler recompute)
@@ -253,6 +257,38 @@ live scheduler check that deliberately hit three severities in one booking
 `UNAPPROVED_PIPELINE` INFO) — which is how the scheduler's booking form
 was caught silently dropping INFO-severity violations (only BLOCK/WARN
 had a render branch) and fixed; see `docs/decisions.md`.
+
+## Phase P9 — timesheets, actuals, margin
+
+- **Timesheets** (`/api/v1/timesheets`): DRAFT → SUBMITTED →
+  APPROVED/REJECTED, editable only in DRAFT. RBAC is finer-grained than a
+  flat role list — `STAFF`/`MANAGER` logins can only act on their own
+  linked `staff_id`; `ADMIN`/`RESOURCE_MANAGER`/`PARTNER`/`HR` can log or
+  edit on anyone's behalf; approve/reject is restricted to
+  `ADMIN`/`RESOURCE_MANAGER`/`PARTNER`/`MANAGER`, so a self-service login
+  can never approve its own hours.
+- **Actuals** (`app/services/actuals.py`): only `APPROVED` timesheets ever
+  count — hours, chargeable hours and cost (via `staff.cost_rate_per_hour`)
+  aggregated per engagement or per staff member.
+- **Margin**: `engagement_margin()` computes fee − actual cost − the
+  out-of-pocket budget (no actual-OOP tracking exists yet, so the budget
+  figure is a conservative proxy), plus budget-vs-actual hours variance.
+- **RP-10** (Engagement Profitability) and **RP-11** (Timesheet Summary)
+  join the report library on the existing dispatch table, reusing the
+  same Excel/PDF export builders unchanged. This session's retained
+  context didn't carry the original spec's verbatim §11 text for this
+  numbering range, so both are scoped from the P9 deliverable description
+  rather than transcribed — see `docs/decisions.md` for the exact caveat
+  and what to do if the real RP-10/RP-11 definitions surface later.
+
+Verified against the live API and a seeded dataset end to end: unit tests
+across the new router, the actuals/margin service and both reports (80
+backend tests total), plus a real seeded server hit directly with curl —
+create a DRAFT timesheet → submit → approve → confirm RP-10's actual
+cost/margin and RP-11's approved-hours both reflect it correctly → pull
+real `.xlsx`/`.pdf` exports off the running server. No frontend changes
+this phase (no scheduler/dashboard/report UI needed updating), so no
+Playwright pass was needed here — see `docs/decisions.md`.
 
 ## Design principles this build holds to (§0)
 

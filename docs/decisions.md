@@ -45,9 +45,11 @@ dedicated secondment record — see the P8 entry below.
 
 ## 5. Timesheets — existing system / historical import
 
-No existing timesheet system was named. Timesheets are built fresh in
-Phase P9 with an import seam left open
-(`/api/v1/integrations/...`, §15) for a historical backfill later.
+No existing timesheet system was named. Timesheets were built fresh in
+Phase P9 (`/api/v1/timesheets`, DRAFT→SUBMITTED→APPROVED/REJECTED). No
+historical-backfill import endpoint exists yet — a §15
+`/api/v1/integrations/...` seam for that remains a gap, not something P9
+needed to close, since there's no existing system named to import from.
 
 ## 6. Authoritative source of client/engagement master today
 
@@ -185,3 +187,54 @@ change, and each is called out in the matching row of
   `len(fulfilment_allocation_ids) vs. headcount` inside `/fulfil` — there's
   no direct "set status" endpoint, so the field can't drift from what's
   actually been booked against the request.
+
+## Phase P9 — timesheets, actuals, margin
+
+- **RP-10/RP-11 titles and column sets were designed, not transcribed.**
+  This session's retained context carries §11's exact definitions for
+  RP-01..RP-09 and (from the P8 turn) RP-13, but not the original text for
+  RP-10 through RP-12 or RP-14 through RP-17. Rather than guess at a
+  numbering/title that might collide with what the spec actually says,
+  RP-10 (Engagement Profitability) and RP-11 (Timesheet Summary) were
+  scoped directly from the P9 deliverable description ("timesheets,
+  actuals, margin") and built to fit the existing report-library shape
+  (`ReportFilters`, the same Excel/PDF export builders). If the original
+  §11 text for this range surfaces later and disagrees, treat these two as
+  provisional and reconcile the column list/title, not the underlying
+  `engagement_margin`/`timesheet_summary` computation.
+- **Only APPROVED timesheets count as actuals**, anywhere (`actuals.py`,
+  RP-10, RP-11's `chargeable_hours_approved`). A DRAFT or SUBMITTED entry
+  is work in progress, not evidence — same posture as the WARN-override
+  audit trail (§4) and the reviewer-gated independence declarations (P8).
+- **RP-10 (Engagement Profitability) doesn't apply the report's date
+  filter**, matching RP-13's precedent: `fee_amount` and
+  `out_of_pocket_budget` are whole-engagement figures, so computing a
+  margin against a date-sliced actual-cost figure would misstate
+  `margin_pct` for anything short of the engagement's full life. It's a
+  to-date figure, always. RP-11 (Timesheet Summary) *is* date-ranged,
+  since a timesheet total is genuinely a period metric.
+- **No actual out-of-pocket expense tracking exists.** `engagement_margin`
+  subtracts `out_of_pocket_budget` (the planned figure, §3.5) rather than
+  an actual OOP spend, since no table captures actual OOP transactions.
+  This is a conservative proxy, not a real actuals figure — margin will
+  read low if actual OOP came in under budget, and high if it came in
+  over. Revisit once/if OOP expense tracking is added.
+- **R18 `BUDGET_OVERRUN` was deliberately left as its P8 estimate**, not
+  switched to read actual timesheet cost now that P9 makes that possible.
+  `check_budget_overrun` scopes its projected-cost sum to allocations
+  overlapping the *candidate's own date window* on the engagement, not the
+  engagement's full life; naively adding engagement-wide actual cost
+  on top would double-count days that are both already logged as an
+  actual and still inside the projected window. Doing this properly needs
+  actual-cost-to-date scoped to *before* the candidate's window plus a
+  projected estimate for the window itself and beyond — deferred rather
+  than shipped half-integrated with a real double-counting risk.
+- **Timesheet RBAC is finer-grained than a flat role list** (§2's 3-layer
+  model, layer 2): `STAFF`/`MANAGER` can only create, edit or submit their
+  own `Timesheet.staff_id` (matched against `User.staff_id`); a `MANAGER`
+  or `STAFF` login with no linked `staff_id` can't log time at all, by
+  construction. `ADMIN`/`RESOURCE_MANAGER`/`PARTNER`/`HR` can act for
+  anyone. Approve/reject is a separate check
+  (`ADMIN`/`RESOURCE_MANAGER`/`PARTNER`/`MANAGER`) so a `STAFF` login can
+  never approve their own submitted hours, including via the generic
+  update path (blocked separately by the DRAFT-only edit rule).
