@@ -238,3 +238,73 @@ change, and each is called out in the matching row of
   (`ADMIN`/`RESOURCE_MANAGER`/`PARTNER`/`MANAGER`) so a `STAFF` login can
   never approve their own submitted hours, including via the generic
   update path (blocked separately by the DRAFT-only edit rule).
+
+## Phase P10 — forecasting, scenarios, roll-forward, bench/burnout watchlist
+
+- **`scenarios`/`scenario_allocations` are new tables**, the same
+  "add a table when a later spec section needs one" precedent as
+  `capacity_daily` (P5) — §8 names scenario planning but §3's table list
+  doesn't include it. No new Alembic migration was written, also matching
+  `capacity_daily`'s precedent: the model is registered in
+  `app/db/base.py`, so a *fresh* install picks it up automatically via
+  migration `0001`'s dynamic `metadata.create_all()`. An already-deployed
+  instance that has only run `0001`+`0002` would need a hand-written
+  incremental migration before upgrading — a known limitation of this
+  single-box/demo-oriented build, not something P10 newly introduced.
+- **Scenario promotion is INFO-tolerant, BLOCK/WARN-strict.** A scenario
+  line promotes only if it has zero BLOCK or WARN violations; a pure INFO
+  violation (e.g. `UNAPPROVED_PIPELINE` on a PIPELINE-status engagement)
+  does not block promotion, matching §4's own INFO semantics ("always
+  safe to save"). Caught by an early version of this code being *too*
+  strict — a test with a freshly-created (therefore PIPELINE-status)
+  engagement failed to promote a conflict-free line purely because of the
+  INFO row; fixed by checking `severity in ("BLOCK", "WARN")` rather than
+  "any violations at all."
+- **Roll-forward validates each copied line as if it were CONFIRMED, but
+  writes it as DRAFT.** R1 `OVERALLOCATION` (and nothing else) is gated to
+  only fire for CONFIRMED/IN_PROGRESS candidates by original P3 design —
+  reasonable for the live scheduler (draft ideas shouldn't block each
+  other), wrong for a bulk copy meant to surface real conflicts up front.
+  Found via a test that booked a real overlapping CONFIRMED allocation in
+  the shifted window and expected the roll-forward to skip that line; it
+  didn't, because the candidate's status defaulted to DRAFT. Fixed by
+  building the conflict-check candidate with `status=CONFIRMED` while the
+  row actually written stays `status=DRAFT` — check as it will eventually
+  be used, save as what it actually is.
+- **A real SQLAlchemy footgun**: after `db.commit()`, every object in that
+  `Session` is expired (SQLAlchemy's `expire_on_commit=True` default) —
+  the *next* attribute access re-triggers a SELECT and works fine, but
+  only through paths that access attributes one at a time (e.g. FastAPI's
+  automatic `response_model` serialization via `model_validate(obj,
+  from_attributes=True)`, or an explicit `db.refresh()`). Calling
+  `SomeSQLModel.model_dump()` directly on an object that's expired but not
+  refreshed returns an **empty dict**, not a lazy-loaded one. Roll-forward
+  hit this for real: `recompute_range()` (§5's capacity-invalidation path)
+  commits internally, which re-expired the just-built `Engagement` even
+  though it had already been `db.refresh()`-ed once earlier in the same
+  function — the *earlier* refresh doesn't protect against a *later*
+  commit. Fixed by moving the roll-forward's final `db.refresh()` to
+  strictly after the last commit in the function (i.e., after
+  `recompute_range`, not before it) rather than assuming one refresh call
+  covers the rest of the function. Worth checking for the same ordering
+  bug anywhere else a function refreshes an object and *then* calls
+  something that commits again before returning it.
+- **RP-12/RP-14 continue RP-10/RP-11's precedent**: no verbatim §11 text
+  for this numbering range was retained in this session's context, so
+  both are scoped and named from the P10 deliverable description rather
+  than transcribed. Reconcile against the real §11 definitions if they
+  surface later, the same caveat as RP-10/RP-11.
+- **RP-12's month bucketing is done in Python, not SQL `GROUP BY`**,
+  specifically to stay portable: `strftime`-style month extraction isn't
+  portable between SQLite and Postgres (the dual dev/prod target, §1), and
+  the codebase has no existing portable-date-truncation helper to reach
+  for. `capacity_report.get_staff_utilisation`'s SQL-level `GROUP BY` for
+  per-staff totals is a different, still-fine pattern (no date truncation
+  involved there) — RP-12 isn't a wholesale departure from that style, just
+  avoiding the one part of it that isn't cross-dialect-safe.
+- **RP-14 reports the trailing streak, not the longest streak in the
+  window.** "Bench and burnout watchlist" is meant to answer "who needs
+  attention right now," not "who was ever benched/overloaded this
+  quarter" — so both BENCH and BURNOUT rows count consecutive days/weeks
+  counting backward from the report's `date_to`, stopping at the first
+  non-qualifying day/week.

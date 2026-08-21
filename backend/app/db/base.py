@@ -12,6 +12,7 @@ from app.models import capacity  # noqa: F401
 from app.models import client  # noqa: F401
 from app.models import engagement  # noqa: F401
 from app.models import reference  # noqa: F401
+from app.models import scenario  # noqa: F401
 from app.models import staff  # noqa: F401
 from app.models import user  # noqa: F401
 

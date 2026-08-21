@@ -8,7 +8,7 @@ forensic engagements. Built per the phased spec at the root of this repo's
 originating build prompt (§0–§16); see `docs/decisions.md` for the
 assumptions made where the spec deferred to firm-specific answers.
 
-## Status: Phases P0–P9 complete
+## Status: Phases P0–P10 complete
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -22,28 +22,35 @@ assumptions made where the spec deferred to firm-specific answers.
 | P7 | Report library RP-01..RP-09 + Excel/PDF export | ✅ |
 | P8 | Rules R10–R24, independence workflow, resource requests, RP-13, notifications | ✅ |
 | P9 | Timesheets, actuals, margin | ✅ |
-| P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | not started |
+| P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | ✅ |
 | P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | not started |
 
-80 backend tests + 12 frontend unit tests pass, covering acceptance tests
-T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14,
-T15 depend on roll-forward/full-FY report-performance work that hasn't
-started yet — see `docs/business-rules.md` and the phase table above),
-plus unit coverage for all of R10–R24, independence declarations, resource
-requests, RP-10/RP-11/RP-13, the notification service, and the P9
-timesheet/actuals/margin workflow. The scheduler board (P4), dashboards
-(P6), report library (P7) and the new WARN/INFO rules (P8) were
-additionally verified by scripted browser interaction (Playwright) against
-the real API and a 300-staff seeded dataset; P9 was verified the same way
-minus the browser step, since it's a backend-only phase (no scheduler/
-dashboard/report UI changes) — a real seeded server, curl end to end
-through create → submit → approve → RP-10/RP-11 export, not just tests.
-That process caught and fixed several real bugs along the way (a UUID
-type-coercion bug in login/lookups, an Excel sheet-name restriction, a
-`capacity_daily` gap for directly-seeded data, raw UUIDs leaking into
-report tables instead of the paired name field, and — in P8 — the
-scheduler's booking form silently dropping INFO-severity violations
-instead of rendering them) — see `docs/decisions.md`.
+92 backend tests + 12 frontend unit tests pass, covering acceptance tests
+T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14/
+T15 reference roll-forward and full-FY report performance — roll-forward
+now exists (P10), but this session's retained context doesn't carry T14/
+T15's exact assertions to confirm against, so they're not claimed passing
+here — see `docs/business-rules.md`), plus unit coverage for all of
+R10–R24, independence declarations, resource requests, RP-10 through
+RP-14, the notification service, the P9 timesheet/actuals/margin
+workflow, and the P10 scenario-planning/roll-forward workflow. The
+scheduler board (P4), dashboards (P6), report library (P7) and the new
+WARN/INFO rules (P8) were additionally verified by scripted browser
+interaction (Playwright) against the real API and a 300-staff seeded
+dataset; P9 and P10 were verified the same way minus the browser step,
+since both are backend-only phases (no scheduler/dashboard/report UI
+changes) — a real seeded server, curl end to end through scenario
+create → add line → impact → promote, engagement roll-forward, and
+RP-12/RP-14 export, not just tests. That process caught and fixed several
+real bugs along the way (a UUID type-coercion bug in login/lookups, an
+Excel sheet-name restriction, a `capacity_daily` gap for directly-seeded
+data, raw UUIDs leaking into
+report tables instead of the paired name field; in P8, the scheduler's
+booking form silently dropping INFO-severity violations instead of
+rendering them; and in P10, a real SQLAlchemy expire-on-commit footgun —
+`.model_dump()` on an object expired by a *later* commit than its last
+`db.refresh()` silently returns an empty dict rather than lazy-loading)
+— see `docs/decisions.md`.
 
 ## Quick start
 
@@ -53,7 +60,7 @@ See `docs/user-guide.md` for full instructions. Fastest path:
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                                  # 80 passed
+pytest                                  # 92 passed
 python -m app.jobs.startup_seed         # admin@firm.local / ChangeMe!2026
 uvicorn app.main:app --reload           # http://localhost:8000/docs
 
@@ -78,8 +85,8 @@ backend/
     core/         # config, security (JWT/bcrypt), deps (RBAC), audit, soft-delete
     models/       # SQLModel entities — one file per aggregate
     schemas/      # pydantic request/response, incl. RBAC field masking
-    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..11, RP-13), independence.py, resource_requests.py, timesheets.py
-    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py, actuals.py
+    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..14), independence.py, resource_requests.py, timesheets.py, scenarios.py
+    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py, actuals.py, scenario_service.py, roll_forward.py
     reports/      # excel_export.py + pdf_export.py — shared formatted xlsx/pdf builders (Indian number format)
     importers/    # two-phase Excel validate/commit
     jobs/         # boot-time bootstrap, capacity_job.py (nightly APScheduler recompute)
@@ -289,6 +296,51 @@ cost/margin and RP-11's approved-hours both reflect it correctly → pull
 real `.xlsx`/`.pdf` exports off the running server. No frontend changes
 this phase (no scheduler/dashboard/report UI needed updating), so no
 Playwright pass was needed here — see `docs/decisions.md`.
+
+## Phase P10 — forecasting, scenarios, roll-forward, bench/burnout watchlist
+
+- **Scenarios** (`/api/v1/scenarios`, new tables `scenarios` +
+  `scenario_allocations` — §8, not in §3's list, added the same way
+  `capacity_daily` was in P5): a named sandbox of hypothetical bookings
+  that reference real staff/engagements (so the real conflict engine can
+  evaluate them accurately) but never touch `allocations` until
+  `/promote`. `GET .../impact` runs R1-R24 against real data, a
+  from-scratch overallocation check against sibling scenario lines
+  (`SCENARIO_OVERALLOCATION`, since committed-data checks can't see
+  those), and a per-staff utilisation delta reusing
+  `capacity_report.get_staff_utilisation` and C3-C6's FTE formula.
+  `/promote` writes real `DRAFT` allocations for every BLOCK/WARN-free
+  line (INFO doesn't block) and reports exactly what it skipped and why.
+- **Engagement roll-forward** (`POST /engagements/{id}/roll-forward`):
+  `Engagement.prior_year_engagement_id` (§3.5) existed precisely for
+  this. Clones an engagement into the next FY — team/role continuity and
+  delivery config copied, financial terms/UDIN/report-signed date reset
+  for renegotiation — then copies the source team as date-shifted `DRAFT`
+  allocations one line at a time through the real conflict engine,
+  skipping (and reporting) anything that isn't clean rather than carrying
+  a conflict forward silently.
+- **RP-12** (Capacity Forecast) and **RP-14** (Bench and Burnout
+  Watchlist) join the report library, both reading only `capacity_daily`
+  (§5). Like RP-10/RP-11 in P9, this session's retained context doesn't
+  carry the original §11 text for this numbering range, so both are
+  scoped from the P10 deliverable description rather than transcribed —
+  see `docs/decisions.md`.
+
+Verified against the live API and a seeded dataset end to end: unit tests
+across scenarios, roll-forward and both new reports (92 backend tests
+total), plus a real seeded server hit directly with curl — a scenario
+line that correctly caught real conflicts (BLOCK `OVERALLOCATION`, WARN
+`EQCR_MISSING`/`SUSTAINED_OVERLOAD`, INFO `UNAPPROVED_PIPELINE`) against
+an already-overbooked seeded staff member, a second scenario that
+promoted cleanly, a roll-forward that correctly skipped lines with a
+genuine deadline/overload conflict in the source data rather than
+copying it forward blind, and real RP-12/RP-14 exports. That process
+caught two real bugs — see `docs/decisions.md`: an overly strict
+scenario-promote check that treated INFO violations as blocking (fixed
+to check BLOCK/WARN only), and a SQLAlchemy expire-on-commit ordering bug
+where a later `recompute_range()` commit silently emptied an
+already-`refresh()`-ed object's `.model_dump()`. No frontend changes this
+phase either, so no Playwright pass — same posture as P9.
 
 ## Design principles this build holds to (§0)
 

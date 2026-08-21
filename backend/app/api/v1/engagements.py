@@ -10,7 +10,13 @@ from app.core.soft_delete import reject_hard_delete
 from app.models.engagement import Engagement
 from app.models.enums import AuditAction, UserRole
 from app.models.user import User
-from app.schemas.engagement import EngagementCreate, EngagementRead
+from app.schemas.engagement import (
+    EngagementCreate,
+    EngagementRead,
+    EngagementRollForwardRequest,
+    EngagementRollForwardResponse,
+)
+from app.services.roll_forward import roll_forward_engagement
 
 router = APIRouter()
 
@@ -98,3 +104,30 @@ def delete_engagement(
     )
     db.commit()
     return {"status": "soft_deleted", "id": str(engagement_id)}
+
+
+@router.post("/{engagement_id}/roll-forward", response_model=EngagementRollForwardResponse, status_code=status.HTTP_201_CREATED)
+def roll_forward(
+    engagement_id: uuid.UUID,
+    payload: EngagementRollForwardRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*WRITE_ROLES)),
+) -> EngagementRollForwardResponse:
+    source = db.get(Engagement, engagement_id)
+    if source is None or not source.is_active:
+        raise HTTPException(status_code=404, detail="Engagement not found")
+    existing = db.exec(select(Engagement).where(Engagement.engagement_code == payload.new_engagement_code)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="new_engagement_code already exists")
+
+    result = roll_forward_engagement(
+        db, source,
+        new_engagement_code=payload.new_engagement_code, new_financial_year=payload.new_financial_year,
+        date_shift_years=payload.date_shift_years, copy_team=payload.copy_team,
+        actor_id=user.id, ip=get_client_ip(request), user_agent=request.headers.get("user-agent"),
+    )
+    return EngagementRollForwardResponse(
+        new_engagement=EngagementRead.from_orm_masked(result.new_engagement, mask_financials=not can_see_financials(user)),
+        copied=result.copied, skipped=result.skipped,
+    )

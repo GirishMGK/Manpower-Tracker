@@ -159,6 +159,23 @@ _REPORTS: dict[str, tuple[str, callable, list[ColumnSpec]]] = {
             ColumnSpec("chargeable_hours_approved", "Chargeable Approved Hrs", "number"),
         ],
     ),
+    "rp12": (
+        "Capacity Forecast", rpt.capacity_forecast,
+        [
+            ColumnSpec("month", "Month"), ColumnSpec("office_name", "Office"), ColumnSpec("department_name", "Department"),
+            ColumnSpec("headcount", "Headcount", "number"), ColumnSpec("net_capacity_hrs", "Net Capacity Hrs", "number"),
+            ColumnSpec("allocated_hrs", "Allocated Hrs", "number"),
+            ColumnSpec("forecast_utilisation_pct", "Forecast Util %", "pct"),
+        ],
+    ),
+    "rp14": (
+        "Bench and Burnout Watchlist", rpt.bench_and_burnout_watchlist,
+        [
+            ColumnSpec("watchlist_type", "Type"), ColumnSpec("staff_name", "Staff"), ColumnSpec("employee_code", "Code"),
+            ColumnSpec("designation", "Grade"), ColumnSpec("consecutive_count", "Consecutive", "number"),
+            ColumnSpec("threshold", "Threshold", "number"), ColumnSpec("unit", "Unit"), ColumnSpec("as_of", "As Of"),
+        ],
+    ),
 }
 
 

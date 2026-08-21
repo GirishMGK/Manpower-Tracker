@@ -15,7 +15,10 @@ from datetime import date, datetime
 
 from sqlmodel import Session, select
 
+from app.core.app_config import get_config_value
+from app.core.config import get_settings
 from app.models.allocation import Allocation, NonAvailability, Timesheet
+from app.models.capacity import CapacityDaily
 from app.models.client import Client
 from app.models.engagement import Engagement
 from app.models.enums import AllocationStatus, StaffCategory, TimesheetStatus
@@ -737,4 +740,135 @@ def timesheet_summary(db: Session, date_from: date, date_to: date, f: ReportFilt
                 **{k: round(v, 2) for k, v in totals.items()},
             }
         )
+    return rows
+
+
+# ------------------------------------------------------------------ RP-12 --
+
+def capacity_forecast(db: Session, date_from: date, date_to: date, f: ReportFilters) -> list[dict]:
+    """RP-12: forward-looking monthly utilisation trend by office/department
+    (§8, Phase P10), read only from the already-materialised `capacity_daily`
+    (§5) — never recomputed from raw allocations. This is only as far
+    forward as capacity_daily has actually been materialised (the nightly
+    job keeps a rolling 180-day window; a range beyond that reads as
+    artificially light/empty rather than a real forecast) — see
+    docs/decisions.md.
+    """
+    office_by_id = _office_lookup(db)
+    department_by_id = _department_lookup(db)
+
+    stmt = (
+        select(
+            CapacityDaily.capacity_date, CapacityDaily.staff_id, CapacityDaily.net_capacity_hrs,
+            CapacityDaily.allocated_hrs, Staff.base_office_id, Staff.primary_department_id, Staff.staff_category,
+        )
+        .join(Staff, Staff.id == CapacityDaily.staff_id)
+        .where(CapacityDaily.capacity_date >= date_from)
+        .where(CapacityDaily.capacity_date <= date_to)
+        .where(Staff.is_active == True)  # noqa: E712
+    )
+    if f.office_id:
+        stmt = stmt.where(Staff.base_office_id == f.office_id)
+    if f.department_id:
+        stmt = stmt.where(Staff.primary_department_id == f.department_id)
+    if f.staff_category:
+        stmt = stmt.where(Staff.staff_category == f.staff_category)
+
+    buckets: dict[tuple[str, str, str], dict] = defaultdict(lambda: {"net": 0.0, "allocated": 0.0, "staff_ids": set()})
+    for row in db.exec(stmt).all():
+        month_key = row.capacity_date.strftime("%Y-%m")
+        office = office_by_id.get(row.base_office_id)
+        dept = department_by_id.get(row.primary_department_id)
+        key = (month_key, office.name if office else "Unassigned", dept.name if dept else "Unassigned")
+        bucket = buckets[key]
+        bucket["net"] += row.net_capacity_hrs
+        bucket["allocated"] += row.allocated_hrs
+        bucket["staff_ids"].add(row.staff_id)
+
+    rows = []
+    for (month, office_name, dept_name), bucket in sorted(buckets.items()):
+        net = bucket["net"]
+        rows.append(
+            {
+                "month": month, "office_name": office_name, "department_name": dept_name,
+                "headcount": len(bucket["staff_ids"]), "net_capacity_hrs": round(net, 1),
+                "allocated_hrs": round(bucket["allocated"], 1),
+                "forecast_utilisation_pct": round(bucket["allocated"] / net * 100, 1) if net else 0.0,
+            }
+        )
+    return rows
+
+
+# ------------------------------------------------------------------ RP-14 --
+
+def bench_and_burnout_watchlist(db: Session, date_from: date, date_to: date, f: ReportFilters) -> list[dict]:
+    """RP-14: staff currently on bench for >= `bench_days` consecutive
+    working days, or in a sustained-overload streak >= `burnout_weeks`
+    consecutive weeks (the same threshold R15 `SUSTAINED_OVERLOAD` uses,
+    §4) — both "currently", i.e. the trailing run ending at `date_to`, not
+    anywhere in the window. Reads only `capacity_daily` (§5).
+    """
+    bench_days_threshold = int(get_config_value(db, "bench_days", get_settings().default_bench_days))
+    burnout_weeks_threshold = int(get_config_value(db, "burnout_weeks", get_settings().default_burnout_weeks))
+
+    stmt = (
+        select(CapacityDaily.staff_id, CapacityDaily.capacity_date, CapacityDaily.bench_flag, CapacityDaily.utilisation_pct)
+        .join(Staff, Staff.id == CapacityDaily.staff_id)
+        .where(CapacityDaily.capacity_date >= date_from)
+        .where(CapacityDaily.capacity_date <= date_to)
+        .where(Staff.is_active == True)  # noqa: E712
+    )
+    if f.office_id:
+        stmt = stmt.where(Staff.base_office_id == f.office_id)
+    if f.department_id:
+        stmt = stmt.where(Staff.primary_department_id == f.department_id)
+    if f.staff_category:
+        stmt = stmt.where(Staff.staff_category == f.staff_category)
+
+    by_staff: dict[uuid.UUID, list] = defaultdict(list)
+    for row in db.exec(stmt).all():
+        by_staff[row.staff_id].append(row)
+
+    staff_by_id = _staff_lookup(db)
+    rows = []
+    for staff_id, day_rows in by_staff.items():
+        staff = staff_by_id.get(staff_id)
+        if staff is None:
+            continue
+        day_rows.sort(key=lambda r: r.capacity_date)
+
+        bench_run = 0
+        for r in reversed(day_rows):
+            if not r.bench_flag:
+                break
+            bench_run += 1
+        if bench_run >= bench_days_threshold:
+            rows.append(
+                {
+                    "watchlist_type": "BENCH", "staff_name": staff.full_name, "employee_code": staff.employee_code,
+                    "designation": staff.designation, "consecutive_count": bench_run, "threshold": bench_days_threshold,
+                    "unit": "days", "as_of": day_rows[-1].capacity_date.isoformat(),
+                }
+            )
+
+        week_pcts: dict[tuple[int, int], list[float]] = defaultdict(list)
+        for r in day_rows:
+            iso = r.capacity_date.isocalendar()
+            week_pcts[(iso[0], iso[1])].append(r.utilisation_pct)
+        weeks_sorted = sorted(week_pcts.keys())
+        burnout_run = 0
+        for wk in reversed(weeks_sorted):
+            avg = sum(week_pcts[wk]) / len(week_pcts[wk])
+            if avg < 90:
+                break
+            burnout_run += 1
+        if burnout_run >= burnout_weeks_threshold:
+            last_week = weeks_sorted[-1]
+            rows.append(
+                {
+                    "watchlist_type": "BURNOUT", "staff_name": staff.full_name, "employee_code": staff.employee_code,
+                    "designation": staff.designation, "consecutive_count": burnout_run, "threshold": burnout_weeks_threshold,
+                    "unit": "weeks", "as_of": f"{last_week[0]}-W{last_week[1]:02d}",
+                }
+            )
     return rows

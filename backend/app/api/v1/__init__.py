@@ -13,6 +13,7 @@ from app.api.v1 import (
     non_availability,
     reports,
     resource_requests,
+    scenarios,
     scheduler,
     staff,
     timesheets,
@@ -37,3 +38,4 @@ api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(independence.router, prefix="/independence-declarations", tags=["independence"])
 api_router.include_router(resource_requests.router, prefix="/resource-requests", tags=["resource-requests"])
 api_router.include_router(timesheets.router, prefix="/timesheets", tags=["timesheets"])
+api_router.include_router(scenarios.router, prefix="/scenarios", tags=["scenarios"])

@@ -1,4 +1,4 @@
-# Data Dictionary — Phase P0–P9
+# Data Dictionary — Phase P0–P10
 
 Full entity definitions live as SQLModel classes in `backend/app/models/`
 (one file per aggregate) — that source is authoritative; this page is a
@@ -27,6 +27,8 @@ extends §3 of the spec.
 | `audit_log` | `models/audit_log.py` | §3.14 | Implemented, append-only, no delete route anywhere |
 | `users` | `models/user.py` | *not in spec* — see `docs/decisions.md` | Implemented |
 | `capacity_daily` | `models/capacity.py` | §5 (named explicitly, not in §3's table list) | Implemented — materialised, not user-editable; see below |
+| `scenarios` | `models/scenario.py` | §8 (named, not in §3's table list) | Implemented — `/api/v1/scenarios`, Phase P10; same "add a table when a later section needs one" precedent as `capacity_daily` |
+| `scenario_allocations` | `models/scenario.py` | §8 (named, not in §3's table list) | Implemented alongside `scenarios` — lines reference real `staff`/`engagements` so the real conflict engine can evaluate them, but never write to `allocations` until `/promote` |
 
 ## Deviations / additions vs. §3 (see `docs/decisions.md` for rationale)
 
@@ -141,6 +143,53 @@ out-of-pocket budget are whole-engagement numbers, so it doesn't apply the
 report's date filter (accepted for parameter consistency, unused in the
 row selection). RP-11 *is* date-ranged, since a timesheet total genuinely
 is a period metric.
+
+## Scenarios (§8, Phase P10)
+
+`scenarios` + `scenario_allocations` (`models/scenario.py`) — a scenario
+line references real `staff_id`/`engagement_id` rows so the real conflict
+engine (R1-R24) can be run against it for an accurate impact check
+(`app/services/scenario_service.py`), but a line is never written to
+`allocations` until `/scenarios/{id}/promote` does so explicitly, one
+clean line (no BLOCK/WARN — INFO is fine) at a time. Sibling scenario
+lines aren't visible to `validate_allocation` (it only knows about
+committed data), so `scenario_service.py` runs its own day-by-day
+overallocation check across a scenario's own lines
+(`SCENARIO_OVERALLOCATION`), the same arithmetic R1 uses. `staff_impact`
+in `GET /scenarios/{id}/impact` reuses `capacity_report.get_staff_utilisation`
+for the "current" figure and the same
+`allocation_pct × overlap_days / period_days` formula C3-C6 (§7.1) use for
+the "added" figure — no new FTE math invented.
+
+## Engagement roll-forward (§8/§9, Phase P10)
+
+`POST /engagements/{id}/roll-forward` (`app/services/roll_forward.py`) —
+no new table; `Engagement.prior_year_engagement_id` (§3.5) already existed
+for exactly this. Team/role continuity and delivery configuration (budget
+hours, required skills, priority/complexity) are copied; financial terms
+(fee, OOP budget, billing milestones), UDIN and the report-signed date are
+reset, since those are earned/renegotiated per engagement, not inherited.
+Team allocations are copied one line at a time through the real conflict
+engine (checked *as if* CONFIRMED, so R1 actually fires, even though the
+row that's actually written stays DRAFT) — any line with a BLOCK or WARN
+is skipped and reported with its reasons rather than silently forced
+through.
+
+## RP-12 / RP-14 (§8, Phase P10)
+
+Continuing RP-10/RP-11's precedent (this session's retained context
+doesn't carry the original §11 text for this numbering range): RP-12
+(Capacity Forecast) and RP-14 (Bench and Burnout Watchlist) are scoped
+from the P10 deliverable description ("forecasting ... bench, burnout
+watchlist") rather than transcribed — see `docs/decisions.md`. Both read
+only `capacity_daily` (§5), no new tables. RP-12 is a monthly
+office/department utilisation trend bucketed in Python (not SQL
+`GROUP BY month`, to stay portable across the SQLite/Postgres dual
+target — `strftime`-based month grouping isn't portable SQL). RP-14
+reuses R15 `SUSTAINED_OVERLOAD`'s >=90%/`burnout_weeks` threshold for its
+BURNOUT rows and `bench_days` for its BENCH rows, but reports the
+*trailing* streak ending at the report's `date_to` (i.e. "on the watchlist
+right now"), not the longest streak anywhere in the window.
 
 ## RBAC column masking (§2)
 

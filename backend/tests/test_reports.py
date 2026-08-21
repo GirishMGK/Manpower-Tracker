@@ -4,7 +4,7 @@ from app.models.enums import UserRole
 from seed.seed_data import seed
 from tests.conftest import auth_headers, make_user
 
-REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)] + ["rp10", "rp11", "rp13"]
+REPORT_KEYS = [f"rp0{i}" for i in range(1, 10)] + ["rp10", "rp11", "rp12", "rp13", "rp14"]
 
 
 def test_list_reports(client, session):
@@ -219,3 +219,82 @@ def test_rp11_timesheet_summary(client, session):
     assert row["hours_approved"] == 8
     assert row["hours_submitted"] == 4
     assert row["chargeable_hours_approved"] == 8
+
+
+def test_rp12_capacity_forecast_buckets_by_month(client, session):
+    import datetime as dt
+
+    from app.models.capacity import CapacityDaily
+    from tests.factories import make_office, make_staff
+
+    office = make_office(session)
+    staff = make_staff(session, base_office_id=office.id)
+    for day, net, allocated in [
+        (dt.date(2026, 9, 15), 8.0, 8.0),
+        (dt.date(2026, 9, 16), 8.0, 4.0),
+        (dt.date(2026, 10, 1), 8.0, 8.0),
+    ]:
+        session.add(CapacityDaily(staff_id=staff.id, capacity_date=day, net_capacity_hrs=net, allocated_hrs=allocated))
+    session.commit()
+
+    make_user(session, UserRole.RESOURCE_MANAGER, email="rep9@x.com")
+    headers = auth_headers(client, "rep9@x.com")
+    resp = client.get(
+        "/api/v1/reports/rp12", headers=headers,
+        params={"date_from": "2026-09-01", "date_to": "2026-10-31", "office_id": str(office.id)},
+    )
+    assert resp.status_code == 200
+    rows = resp.json()
+    sep_row = next(r for r in rows if r["month"] == "2026-09")
+    oct_row = next(r for r in rows if r["month"] == "2026-10")
+    assert sep_row["net_capacity_hrs"] == 16.0
+    assert sep_row["allocated_hrs"] == 12.0
+    assert sep_row["forecast_utilisation_pct"] == 75.0
+    assert oct_row["allocated_hrs"] == 8.0
+    assert sep_row["headcount"] == 1
+
+
+def test_rp14_bench_and_burnout_watchlist(client, session):
+    import datetime as dt
+
+    from app.models.capacity import CapacityDaily
+    from tests.factories import make_staff
+
+    bench_staff = make_staff(session, full_name="Bench Case")
+    burnout_staff = make_staff(session, full_name="Burnout Case")
+
+    # 6 consecutive bench days ending 2026-09-10 (default bench_days threshold = 5)
+    for i in range(6):
+        session.add(
+            CapacityDaily(
+                staff_id=bench_staff.id, capacity_date=dt.date(2026, 9, 5) + dt.timedelta(days=i),
+                net_capacity_hrs=8.0, allocated_hrs=0.0, bench_flag=True, utilisation_pct=0.0,
+            )
+        )
+    # 7 consecutive weeks at 95% utilisation ending 2026-09-13 (default burnout_weeks threshold = 6)
+    start = dt.date(2026, 7, 27)  # a Monday
+    for week in range(7):
+        for day in range(5):
+            session.add(
+                CapacityDaily(
+                    staff_id=burnout_staff.id, capacity_date=start + dt.timedelta(weeks=week, days=day),
+                    net_capacity_hrs=8.0, allocated_hrs=7.6, bench_flag=False, utilisation_pct=95.0,
+                )
+            )
+    session.commit()
+
+    make_user(session, UserRole.RESOURCE_MANAGER, email="rep10@x.com")
+    headers = auth_headers(client, "rep10@x.com")
+    resp = client.get(
+        "/api/v1/reports/rp14", headers=headers,
+        params={"date_from": "2026-07-01", "date_to": "2026-09-13"},
+    )
+    assert resp.status_code == 200
+    rows = resp.json()
+    bench_row = next(r for r in rows if r["staff_name"] == bench_staff.full_name)
+    assert bench_row["watchlist_type"] == "BENCH"
+    assert bench_row["consecutive_count"] == 6
+
+    burnout_row = next(r for r in rows if r["staff_name"] == burnout_staff.full_name)
+    assert burnout_row["watchlist_type"] == "BURNOUT"
+    assert burnout_row["consecutive_count"] == 7

@@ -1,12 +1,12 @@
-# User Guide — current build (Phases P0–P9)
+# User Guide — current build (Phases P0–P10)
 
 This covers what's actually usable today: authentication, master data,
 engagements, leave, the allocation/conflict-engine API (R1–R24), the
 scheduler board, capacity utilisation, the C1–C6 dashboards, the
-RP-01..RP-11 + RP-13 report library, independence declarations, resource
-requests, best-effort email notifications, and timesheets with actuals and
-engagement margin. Forecasting is not built yet — see the root `README.md`
-for the phase roadmap.
+RP-01..RP-14 report library, independence declarations, resource requests,
+best-effort email notifications, timesheets with actuals and engagement
+margin, what-if scenario planning, and engagement roll-forward. See the
+root `README.md` for the phase roadmap.
 
 ## Running it locally
 
@@ -161,6 +161,34 @@ Nothing counts as an actual until it's `APPROVED`: `DRAFT`/`SUBMITTED`/
 `REJECTED` hours don't feed margin, RP-10, or RP-11's approved-hours
 columns.
 
+## What-if scenario planning (§8)
+
+`/api/v1/scenarios` — create a named sandbox (`name`, `date_from`,
+`date_to`), then add lines (`POST .../lines`: staff, engagement, role,
+dates, %) without booking anything real. `GET .../impact` runs the real
+conflict engine (R1–R24) against each line — since lines reference real
+staff/engagements, the check is exact, not a guess — plus a check across
+the scenario's *own* lines for a staff member (`SCENARIO_OVERALLOCATION`,
+since committed-data checks can't see sibling scenario lines), and a
+per-staff utilisation delta (current, from `capacity_daily`, vs.
+projected). `POST .../promote` writes real `DRAFT` allocations for every
+line with zero BLOCK/WARN violations (INFO doesn't block promotion) and
+reports which lines it skipped and why — nothing is ever silently forced
+through. A promoted or discarded scenario can't be edited further.
+
+## Engagement roll-forward (§8/§9)
+
+`POST /api/v1/engagements/{id}/roll-forward` (Admin/RM/Partner) —
+`{"new_engagement_code": "...", "new_financial_year": null, "date_shift_years": 1, "copy_team": true}`.
+Creates next year's engagement (client/department/service/team/budget
+copied; fee, OOP budget, billing milestones, UDIN and report-signed date
+reset for renegotiation; `prior_year_engagement_id` set), then copies the
+source engagement's CONFIRMED/IN_PROGRESS/COMPLETED team as `DRAFT`
+allocations shifted a year. Each line is checked through the real conflict
+engine first — a line with any BLOCK or WARN is skipped and reported with
+its reasons (in the response's `skipped` list) rather than silently
+carried forward with a real conflict baked in.
+
 ## Capacity and utilisation (§5)
 
 `GET /api/v1/capacity/utilisation?date_from=&date_to=` returns net/allocated/
@@ -186,27 +214,37 @@ itself as a `.png`.
 
 `/reports` — pick a report from the sidebar (RP-01 Deployment Register
 through RP-09 Leave and Absence, plus RP-10 Engagement Profitability,
-RP-11 Timesheet Summary and RP-13 Independence and Rotation), set the
-shared filters at the top (date range, office, department, partner,
-client group, staff category, status), and the table updates. Every
-report has two export buttons: Excel (formatted, Indian number grouping,
-frozen header) and PDF (landscape, print-ready for a partner meeting).
-RP-03 (Staff Utilisation) and RP-06 (Bench and Availability) read from the
-same materialised `capacity_daily` table as `/api/v1/capacity/utilisation`
-— if you've just run a bulk import that bypassed the normal
-allocation/leave routes, run `POST /api/v1/capacity/recompute` first or
-these two reports may look stale. RP-07 (Conflict and Exception Report)
-only shows allocations saved with a recorded WARN override — nothing
-appears there until a scheduler booking has actually gone through that
-flow. RP-13 (Independence and Rotation) is point-in-time, not date-ranged
-— it lists every active engagement's EP, EP tenure, rotation-due FY,
-EQCR, open independence conflicts and declaration status regardless of
-the date filter (accepted for consistency with the rest of the library,
-just not applied). RP-10 (Engagement Profitability) is the same way —
-fee and margin are to-date figures, not a period slice — while RP-11
-(Timesheet Summary) genuinely is date-ranged. Both RP-10 and RP-11 only
-count `APPROVED` timesheet hours; log time and get it approved
-(see above) before expecting either to show anything.
+RP-11 Timesheet Summary, RP-12 Capacity Forecast, RP-13 Independence and
+Rotation, and RP-14 Bench and Burnout Watchlist), set the shared filters
+at the top (date range, office, department, partner, client group, staff
+category, status), and the table updates. Every report has two export
+buttons: Excel (formatted, Indian number grouping, frozen header) and PDF
+(landscape, print-ready for a partner meeting). RP-03 (Staff Utilisation)
+and RP-06 (Bench and Availability) read from the same materialised
+`capacity_daily` table as `/api/v1/capacity/utilisation` — if you've just
+run a bulk import that bypassed the normal allocation/leave routes, run
+`POST /api/v1/capacity/recompute` first or these two reports (and RP-12,
+RP-14, which read the same table) may look stale or empty for a future
+window. RP-07 (Conflict and Exception Report) only shows allocations
+saved with a recorded WARN override — nothing appears there until a
+scheduler booking has actually gone through that flow. RP-13
+(Independence and Rotation) is point-in-time, not date-ranged — it lists
+every active engagement's EP, EP tenure, rotation-due FY, EQCR, open
+independence conflicts and declaration status regardless of the date
+filter (accepted for consistency with the rest of the library, just not
+applied). RP-10 (Engagement Profitability) is the same way — fee and
+margin are to-date figures, not a period slice — while RP-11 (Timesheet
+Summary) genuinely is date-ranged. Both RP-10 and RP-11 only count
+`APPROVED` timesheet hours; log time and get it approved (see above)
+before expecting either to show anything. RP-12 (Capacity Forecast) is a
+monthly office/department utilisation trend — it's only as far forward as
+`capacity_daily` has actually been materialised (the nightly job keeps a
+rolling 180-day-forward window; further out reads as empty, not zero
+demand). RP-14 (Bench and Burnout Watchlist) lists staff *currently* on
+bench (`>= bench_days` consecutive working days ending at the report's
+`date_to`) or in a sustained-overload streak (`>= burnout_weeks`
+consecutive weeks at >=90% utilisation, mirroring R15) — a trailing
+streak, not the longest one anywhere in the window.
 
 ## Notifications (§9)
 
