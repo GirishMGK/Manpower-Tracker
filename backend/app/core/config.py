@@ -27,6 +27,12 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # When set, app.main serves the built SPA (frontend/dist by default) from
+    # this directory as a single process — used by the PyInstaller desktop
+    # build (see desktop/launcher.py). Unset in normal dev/docker deployments,
+    # where the frontend is served separately (Vite dev server / nginx).
+    static_dir: str | None = None
+
     # APScheduler nightly jobs (§1: in-process, no Celery/Redis for v1).
     # Off by default under pytest (see tests/conftest.py) so test runs don't
     # spin up a background thread scheduling a 2 AM cron job.

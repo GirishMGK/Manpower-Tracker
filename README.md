@@ -85,6 +85,11 @@ GitHub. `.devcontainer/` builds the venv, installs frontend deps, seeds the
 demo dataset and starts both dev servers automatically — see
 `docs/user-guide.md` for what to expect.
 
+Or install it as a Windows desktop app — no Python/Node/terminal required:
+**Actions → "Build Windows desktop app" → Run workflow**, then download
+`FirmRMS-Setup` from the finished run. See
+[Windows desktop app](docs/user-guide.md#windows-desktop-app) below.
+
 ## Repo layout
 
 ```

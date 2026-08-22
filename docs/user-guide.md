@@ -56,6 +56,48 @@ API calls included — verified end to end while building this
 returned a real JWT). Logs for both servers, if something looks off:
 `/tmp/firm-rms-logs/{backend,frontend}.log`.
 
+### Windows desktop app
+
+`desktop/` packages firm-rms as a normal Windows program — a double-click
+`.exe`, no Python, Node, terminal, or Docker involved. Under the hood it's
+still the same FastAPI backend and React frontend: `app.main` serves the
+built frontend's static files itself when `RMS_STATIC_DIR` is set
+(`desktop/launcher.py` does this), so the packaged app is one process on
+one port instead of two dev servers.
+
+**Getting the installer** (built on GitHub, since PyInstaller has to run on
+the target OS — it can't cross-compile a Windows binary from Linux/macOS):
+go to this repo's **Actions** tab → **"Build Windows desktop app"** → **Run
+workflow**. When it finishes, open the run and download the `FirmRMS-Setup`
+artifact (a zip containing `FirmRMS-Setup.exe`). Pushing a tag like `v1.0.0`
+also attaches the installer to a GitHub Release, if you'd rather hand
+people a direct download link than a workflow run.
+
+**Installing and running it:** run `FirmRMS-Setup.exe`, accept the
+defaults (Start Menu shortcut, optional desktop icon), then launch "Firm
+RMS". A console window opens (that's the running server — closing it stops
+the app) and your browser opens to `http://127.0.0.1:8000` automatically.
+First launch creates the database and a default admin login
+(`admin@firm.local` / `ChangeMe!2026`, forced password change) — the same
+idempotent bootstrap Codespaces and docker-compose use, *not* the 300-person
+demo dataset, since a firm install should start empty.
+
+**Where your data lives:** a per-user SQLite database and a generated JWT
+signing key, under `%LOCALAPPDATA%\FirmRMS\` — kept outside the (often
+read-only) install folder under Program Files, and untouched by
+reinstalling or upgrading the app. Uninstalling via "Add or Remove
+Programs" removes the program files only; delete `%LOCALAPPDATA%\FirmRMS\`
+yourself if you also want the data gone.
+
+This is a single-user/single-machine packaging aimed at trying the tool out
+or a very small firm — for a real multi-office, multi-user deployment use
+the docker-compose (Postgres) setup instead, so everyone hits one shared
+database over the network.
+
+To build the installer yourself instead of via Actions, see the build
+commands at the top of `desktop/firm_rms.spec` (PyInstaller) and
+`desktop/installer.iss` (Inno Setup) — both require Windows.
+
 ## Logging in
 
 Default admin (created by `startup_seed`): `admin@firm.local` /
