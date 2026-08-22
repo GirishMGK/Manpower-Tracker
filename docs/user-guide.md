@@ -36,6 +36,26 @@ cp backend/.env.example backend/.env    # edit RMS_JWT_SECRET_KEY at minimum
 docker compose up --build
 ```
 
+### GitHub Codespaces
+
+`.devcontainer/` makes the repo runnable straight from GitHub with no local
+setup: **Code → Codespaces → Create codespace on this branch**. On first
+build, `.devcontainer/setup.sh` installs the backend venv + frontend
+`node_modules` and seeds the full demo dataset (SQLite); `.devcontainer/start.sh`
+then starts both dev servers bound to `0.0.0.0` (required for Codespaces'
+port forwarding) every time the codespace starts or resumes — it's
+idempotent, so reopening an existing codespace won't spawn duplicates.
+
+Codespaces will pop up a notification once port **5173** is listening —
+click "Open in Browser". You don't need port 8000 forwarded too unless you
+want to hit the API directly (Swagger UI at `/docs`): the frontend's own
+Vite dev server proxies `/api/*` to the backend over `localhost` *inside*
+the container, so the single forwarded frontend URL serves the whole app,
+API calls included — verified end to end while building this
+(`curl` through the forwarded-equivalent port for `/api/v1/auth/login`
+returned a real JWT). Logs for both servers, if something looks off:
+`/tmp/firm-rms-logs/{backend,frontend}.log`.
+
 ## Logging in
 
 Default admin (created by `startup_seed`): `admin@firm.local` /

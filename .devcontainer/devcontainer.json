@@ -1,0 +1,17 @@
+{
+  "name": "firm-rms",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "forwardPorts": [5173, 8000],
+  "portsAttributes": {
+    "5173": {
+      "label": "Web app (firm-rms)",
+      "onAutoForward": "openPreview"
+    },
+    "8000": {
+      "label": "API (Swagger UI at /docs)",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/start.sh"
+}

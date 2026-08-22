@@ -80,6 +80,11 @@ cp backend/.env.example backend/.env
 docker compose up --build
 ```
 
+Or skip local setup entirely: **Code → Codespaces → Create codespace** on
+GitHub. `.devcontainer/` builds the venv, installs frontend deps, seeds the
+demo dataset and starts both dev servers automatically — see
+`docs/user-guide.md` for what to expect.
+
 ## Repo layout
 
 ```
