@@ -1,4 +1,4 @@
-# Data Dictionary — Phase P0–P10
+# Data Dictionary — Phase P0–P11 (spec complete)
 
 Full entity definitions live as SQLModel classes in `backend/app/models/`
 (one file per aggregate) — that source is authoritative; this page is a
@@ -190,6 +190,23 @@ reuses R15 `SUSTAINED_OVERLOAD`'s >=90%/`burnout_weeks` threshold for its
 BURNOUT rows and `bench_days` for its BENCH rows, but reports the
 *trailing* streak ending at the report's `date_to` (i.e. "on the watchlist
 right now"), not the longest streak anywhere in the window.
+
+## Mobile /me, ICS feed, scheduled digest (§9/§10.2, Phase P11)
+
+No new tables — `app/services/me_service.py` reads existing
+`allocations`/`non_availability`/`timesheets`/`staff` scoped to the
+caller's own `staff_id` (never a parameter anywhere in `app/api/v1/me.py`,
+so there's no way to ask for anyone else's data through this router).
+`GET /me/calendar.ics` (`app/services/ics_export.py`) hand-rolls a minimal
+RFC 5545 feed — no new dependency, same posture as P6's client-side PNG
+export — as all-day `VEVENT`s (an exclusive `DTEND` per the spec, so
+`date_to` is bumped a day). It's JWT-authenticated like the rest of the
+API, which real calendar apps can't do (no Bearer header on a "subscribe
+by URL"); see `docs/decisions.md` for what a production deployment would
+need instead. The weekly digest (`app/services/digest.py`,
+`app/jobs/digest_job.py`) is a second independent APScheduler instance
+alongside `capacity_job.py`'s (Monday 07:00 IST), reusing
+`notifications.py`'s already-no-op-safe send.
 
 ## RBAC column masking (§2)
 

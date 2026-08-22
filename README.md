@@ -8,7 +8,7 @@ forensic engagements. Built per the phased spec at the root of this repo's
 originating build prompt (§0–§16); see `docs/decisions.md` for the
 assumptions made where the spec deferred to firm-specific answers.
 
-## Status: Phases P0–P10 complete
+## Status: Phases P0–P11 complete — the full §13 build is done
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -23,9 +23,9 @@ assumptions made where the spec deferred to firm-specific answers.
 | P8 | Rules R10–R24, independence workflow, resource requests, RP-13, notifications | ✅ |
 | P9 | Timesheets, actuals, margin | ✅ |
 | P10 | Forecasting, scenarios, roll-forward, bench, burnout watchlist | ✅ |
-| P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | not started |
+| P11 | Mobile `/me`, ICS feed, scheduled emails, backup/restore drill | ✅ |
 
-92 backend tests + 12 frontend unit tests pass, covering acceptance tests
+104 backend tests + 18 frontend unit tests pass, covering acceptance tests
 T1–T4, T6–T13, T16 from §14 (T5 is folded into the R6 EQCR test set; T14/
 T15 reference roll-forward and full-FY report performance — roll-forward
 now exists (P10), but this session's retained context doesn't carry T14/
@@ -33,24 +33,27 @@ T15's exact assertions to confirm against, so they're not claimed passing
 here — see `docs/business-rules.md`), plus unit coverage for all of
 R10–R24, independence declarations, resource requests, RP-10 through
 RP-14, the notification service, the P9 timesheet/actuals/margin
-workflow, and the P10 scenario-planning/roll-forward workflow. The
-scheduler board (P4), dashboards (P6), report library (P7) and the new
-WARN/INFO rules (P8) were additionally verified by scripted browser
-interaction (Playwright) against the real API and a 300-staff seeded
-dataset; P9 and P10 were verified the same way minus the browser step,
-since both are backend-only phases (no scheduler/dashboard/report UI
-changes) — a real seeded server, curl end to end through scenario
-create → add line → impact → promote, engagement roll-forward, and
-RP-12/RP-14 export, not just tests. That process caught and fixed several
-real bugs along the way (a UUID type-coercion bug in login/lookups, an
-Excel sheet-name restriction, a `capacity_daily` gap for directly-seeded
-data, raw UUIDs leaking into
-report tables instead of the paired name field; in P8, the scheduler's
-booking form silently dropping INFO-severity violations instead of
-rendering them; and in P10, a real SQLAlchemy expire-on-commit footgun —
-`.model_dump()` on an object expired by a *later* commit than its last
-`db.refresh()` silently returns an empty dict rather than lazy-loading)
-— see `docs/decisions.md`.
+workflow, the P10 scenario-planning/roll-forward workflow, and P11's
+`/me`/ICS/digest/backup-restore work. The scheduler board (P4), dashboards
+(P6), report library (P7), the new WARN/INFO rules (P8) and the mobile
+`/me` page (P11) were all verified by scripted browser interaction
+(Playwright) against the real API and a 300-staff seeded dataset; P9 and
+P10 were verified the same way minus the browser step, since both were
+backend-only phases. That process caught and fixed several real bugs
+along the way (a UUID type-coercion bug in login/lookups, an Excel
+sheet-name restriction, a `capacity_daily` gap for directly-seeded data,
+raw UUIDs leaking into report tables instead of the paired name field; in
+P8, the scheduler's booking form silently dropping INFO-severity
+violations instead of rendering them; in P10, a real SQLAlchemy
+expire-on-commit footgun — `.model_dump()` on an object expired by a
+*later* commit than its last `db.refresh()` silently returns an empty
+dict rather than lazy-loading; and in P11, a `(str, Enum)` f-string
+formatting gotcha that leaked `AllocationRole.FIELD_INCHARGE` instead of
+`FIELD_INCHARGE` into the ICS feed and digest emails) — see
+`docs/decisions.md`. P11's backup/restore scripts were drilled for real
+against a genuine local Postgres 16 instance and the SQLite dev DB alike
+— seed, back up, destroy the live data, restore, confirm every row count
+matches — not just written and left untested.
 
 ## Quick start
 
@@ -60,13 +63,13 @@ See `docs/user-guide.md` for full instructions. Fastest path:
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                                  # 92 passed
+pytest                                  # 104 passed
 python -m app.jobs.startup_seed         # admin@firm.local / ChangeMe!2026
 uvicorn app.main:app --reload           # http://localhost:8000/docs
 
 cd ../frontend
 npm install
-npm test                                # 12 passed
+npm test                                # 18 passed
 npm run dev                             # http://localhost:5173 -> /schedule, /dashboards, /reports
 ```
 
@@ -85,22 +88,23 @@ backend/
     core/         # config, security (JWT/bcrypt), deps (RBAC), audit, soft-delete
     models/       # SQLModel entities — one file per aggregate
     schemas/      # pydantic request/response, incl. RBAC field masking
-    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..14), independence.py, resource_requests.py, timesheets.py, scenarios.py
-    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py, actuals.py, scenario_service.py, roll_forward.py
+    api/v1/       # routers, incl. scheduler.py (board read model), dashboards.py (C1-C6), capacity.py, reports.py (RP-01..14), independence.py, resource_requests.py, timesheets.py, scenarios.py, me.py
+    services/     # conflict_engine.py (R1-R24), capacity_materializer.py, capacity_report.py, dashboard.py, reports.py, notifications.py, actuals.py, scenario_service.py, roll_forward.py, me_service.py, ics_export.py, digest.py
     reports/      # excel_export.py + pdf_export.py — shared formatted xlsx/pdf builders (Indian number format)
     importers/    # two-phase Excel validate/commit
-    jobs/         # boot-time bootstrap, capacity_job.py (nightly APScheduler recompute)
+    jobs/         # boot-time bootstrap, capacity_job.py (nightly recompute), digest_job.py (weekly booking digest)
   alembic/        # migrations (0001 initial schema, 0002 Postgres EXCLUDE constraint)
+  scripts/        # backup.sh / restore.sh — Postgres/SQLite backup+restore
   seed/           # seed_data.py (full §14 demo dataset), sample_masters.xlsx
   tests/          # pytest — acceptance tests named after their T-number in §14
 frontend/
   src/
-    pages/        # Login, Dashboard, Scheduler (P4), Dashboards (P6), Reports (P7)
+    pages/        # Login, Dashboard, Scheduler (P4), Dashboards (P6), Reports (P7), Me (P11)
     components/scheduler/   # SchedulerGrid (SVG board), BookingForm, FilterBar, colors/layout helpers
     components/dashboards/  # ChartCard, DashboardFilterBar, C1-C6 chart components, drill-through modals
     components/reports/     # ReportFilterBar, generic ReportTable
-    lib/          # API clients (axios), date helpers, undo/redo store, PNG export, Zustand auth store
-    types/        # scheduler.ts, dashboard.ts, report.ts — shapes shared with the API
+    lib/          # API clients (axios), date helpers, undo/redo store, PNG export, Zustand auth store, meApi/meFormat
+    types/        # scheduler.ts, dashboard.ts, report.ts, me.ts — shapes shared with the API
 docs/
   decisions.md          # §16 assumptions, recorded rather than blocking the build
   data-dictionary.md
@@ -341,6 +345,57 @@ to check BLOCK/WARN only), and a SQLAlchemy expire-on-commit ordering bug
 where a later `recompute_range()` commit silently emptied an
 already-`refresh()`-ed object's `.model_dump()`. No frontend changes this
 phase either, so no Playwright pass — same posture as P9.
+
+## Phase P11 — mobile /me, ICS feed, scheduled emails, backup/restore
+
+The last phase in the §13 roadmap — every phase P0 through P11 is now built.
+
+- **Mobile `/me`** (`/api/v1/me`, `frontend/src/pages/Me.tsx`): a
+  single-column, phone-width self-service view — profile, current-FY leave
+  balance, upcoming bookings (60 days), recent timesheets (30 days). Every
+  route is scoped to the caller's own `staff_id` by construction (no
+  `staff_id` parameter exists anywhere on the router), and a login with no
+  linked staff record gets a clear "nothing to show" rather than an empty
+  profile.
+- **ICS calendar feed** (`GET /me/calendar.ics`, `app/services/ics_export.py`):
+  hand-rolled RFC 5545 — no new dependency, same posture as P6's
+  client-side PNG export. All-day `VEVENT`s with a correctly-exclusive
+  `DTEND`. JWT-authenticated like the rest of the API, which real calendar
+  apps can't satisfy for a live "subscribe by URL" — documented as a real
+  limitation, not glossed over, in `docs/decisions.md`.
+- **Scheduled weekly digest** (`app/jobs/digest_job.py`): a second,
+  independent APScheduler instance (Monday 07:00 IST) emailing each staff
+  member with an email on file and at least one confirmed booking that
+  week — reusing P8's already-no-op-safe `notifications.py`.
+- **Backup/restore** (`backend/scripts/backup.sh`/`restore.sh`): auto-detects
+  Postgres vs. SQLite from `RMS_DATABASE_URL`. Postgres uses
+  `pg_dump --format=custom` / `pg_restore --clean --if-exists`; SQLite is a
+  file copy that moves the existing file aside (never deletes it outright,
+  extending §0.1's soft-delete posture to an ops script). Both were
+  **actually drilled**, not just written: a real local Postgres 16
+  instance, seeded with the full 300-staff dataset, backed up, `TRUNCATE`'d
+  to simulate data loss, restored — every table's row count matched
+  exactly. Same drill for the SQLite dev path (delete the file entirely,
+  restore, row counts match).
+
+Two real bugs found via live verification (both in `docs/decisions.md`):
+a `(str, Enum)` f-string formatting gotcha that leaked
+`AllocationRole.FIELD_INCHARGE` into the ICS feed and digest emails
+instead of `FIELD_INCHARGE` (Python's well-known str-mixin-enum
+formatting inconsistency — pydantic response models had always serialized
+these correctly, masking the bug everywhere else in the codebase; this
+was the first place to format them as raw text), and the `/me` page
+showing the login's synthetic `full_name` ("e0001") instead of the
+roster's real name ("Aarav Roy") — caught from the actual Playwright
+screenshot, not a passing test.
+
+Verified against the live API, a seeded dataset, and the real frontend:
+12 new backend tests (104 total) plus 6 new frontend unit tests (18
+total) for the /me endpoints, ICS builder and digest content; a
+Playwright pass logging in as a real seeded manager and confirming the
+`/me` page renders correctly (profile, leave balance, bookings,
+timesheets, working `.ics` download) with no enum-leak regressions; and
+the full backup/restore drill described above.
 
 ## Design principles this build holds to (§0)
 

@@ -10,6 +10,7 @@ from app.api.v1 import (
     engagements,
     independence,
     masters,
+    me,
     non_availability,
     reports,
     resource_requests,
@@ -39,3 +40,4 @@ api_router.include_router(independence.router, prefix="/independence-declaration
 api_router.include_router(resource_requests.router, prefix="/resource-requests", tags=["resource-requests"])
 api_router.include_router(timesheets.router, prefix="/timesheets", tags=["timesheets"])
 api_router.include_router(scenarios.router, prefix="/scenarios", tags=["scenarios"])
+api_router.include_router(me.router, prefix="/me", tags=["me"])

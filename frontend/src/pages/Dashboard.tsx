@@ -28,12 +28,12 @@ export default function Dashboard() {
         >
           Open report library →
         </Link>
-      </div>
-
-      <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
-        Forecasting, timesheets and the mobile view land in later build
-        phases (§13 P9–P11). The scheduler board, dashboards and report
-        library above are live.
+        <Link
+          to="/me"
+          className="inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+        >
+          My bookings →
+        </Link>
       </div>
     </div>
   );

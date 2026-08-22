@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
-from app.jobs.capacity_job import start_scheduler, stop_scheduler
+from app.jobs import capacity_job, digest_job
 
 settings = get_settings()
 
@@ -13,10 +13,12 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.enable_background_jobs:
-        start_scheduler()
+        capacity_job.start_scheduler()
+        digest_job.start_scheduler()
     yield
     if settings.enable_background_jobs:
-        stop_scheduler()
+        capacity_job.stop_scheduler()
+        digest_job.stop_scheduler()
 
 
 app = FastAPI(

@@ -3,6 +3,7 @@ import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
 import Dashboards from "@/pages/Dashboards";
 import Login from "@/pages/Login";
+import Me from "@/pages/Me";
 import Reports from "@/pages/Reports";
 import Scheduler from "@/pages/Scheduler";
 
@@ -45,6 +46,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Reports />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/me"
+        element={
+          <RequireAuth>
+            <Me />
           </RequireAuth>
         }
       />

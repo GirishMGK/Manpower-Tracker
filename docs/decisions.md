@@ -65,10 +65,10 @@ being edited too" doesn't corrupt data.
 The stack (§1) is fixed to Docker Compose specifically to keep the
 deployment single-box and portable across on-premise, Azure India, or a
 hybrid setup — no code decision here favours one over the others. Backup/DR
-is a Phase P11 deliverable (`docs/user-guide.md` restore drill, §14
-mentions this as an implicit expectation via "audit_log retention ≥ 8
-years"). Until P11, the operational assumption is: nightly `pg_dump` of the
-`db` volume, retained per the firm's backup policy.
+is delivered in Phase P11: `backend/scripts/backup.sh`/`restore.sh`
+(§14 mentions this as an implicit expectation via "audit_log retention ≥ 8
+years") — see the P11 section below for what was actually drilled and
+verified, not just written.
 
 ## 8. Google Workspace SSO availability
 
@@ -308,3 +308,61 @@ change, and each is called out in the matching row of
   quarter" — so both BENCH and BURNOUT rows count consecutive days/weeks
   counting backward from the report's `date_to`, stopping at the first
   non-qualifying day/week.
+
+## Phase P11 — mobile /me, ICS feed, scheduled emails, backup/restore
+
+- **`/me/calendar.ics` is JWT-authenticated like the rest of the API,
+  which real calendar apps can't satisfy.** Google/Apple/Outlook Calendar
+  "subscribe by URL" sends no Bearer header — a production deployment
+  would need a separate long-lived per-user feed token issued specifically
+  for this one endpoint (a `?token=` query param checked against a stored
+  secret, not the session JWT). Out of scope here: building that token
+  scheme without a concrete auth requirement to build it against would be
+  guessing. The endpoint today is meant to be pulled by something that
+  *can* attach a header — the `/me` page's own download button, a script,
+  `curl` — not subscribed to directly from a calendar app yet.
+- **A real, live-verified bug**: `(str, Enum)` mixins (every enum column
+  in this app) format as `"ClassName.MEMBER"` in an f-string on Python
+  < 3.12 — a well-known gotcha, and one the codebase had quietly avoided
+  until now because every other place that touches these fields either
+  goes through a pydantic response model (which serializes them correctly
+  via its own machinery) or a SQL `WHERE` clause (which compares by value,
+  not string form). `app/services/ics_export.py`'s plain-text
+  SUMMARY/DESCRIPTION and `app/services/digest.py`'s plain-text email body
+  are the first places in the whole build to format these fields as raw
+  text — found by actually reading the `.ics` output of a live curl
+  request (`AllocationRole.FIELD_INCHARGE` instead of `FIELD_INCHARGE`),
+  not by unit tests, which happened not to exercise a code path where the
+  gotcha bit (test fixtures' freshly-constructed rows vs. a live server's
+  round-tripped-through-SQLite rows apparently differ in exactly whether
+  the ORM hands back the enum member or the raw string). Fixed with a
+  `_plain()` helper in `me_service.py` that unwraps `.value` explicitly,
+  applied at the one place (`MeAllocationRow` construction) both the ICS
+  feed and the digest email read from — not patched separately in each
+  consumer.
+- **The `/me` page shows the staff roster record's name, not the login's
+  own `full_name`.** Found via the live Playwright screenshot: the seeded
+  demo logins set `User.full_name` to the email's local part (`"e0001"`,
+  from `seed_data.py`), which is a login-identity artifact, not a person's
+  name — the roster (`staff.full_name`, `"Aarav Roy"`) is the real
+  identity for a self-service view. Fixed by preferring
+  `profile.staff.full_name` in the frontend, falling back to
+  `profile.full_name` only for a system/admin login with no linked staff
+  record.
+- **Backup/restore was actually drilled, not just scripted.** Both paths
+  in `backend/scripts/backup.sh`/`restore.sh` were run for real in this
+  build's sandbox: a genuine local Postgres 16 instance (seeded with the
+  full 300-staff/200-client/380-engagement dataset, 800 allocations),
+  `pg_dump`'d, the database `TRUNCATE`'d to simulate real data loss, then
+  `pg_restore`'d back — every table's row count matched the pre-loss
+  baseline exactly. The SQLite dev path got the same drill (seed → backup
+  → delete the `.db` file entirely → restore → row counts matched). The
+  SQLite integrity-check step in `backup.sh` originally shelled out to the
+  `sqlite3` CLI, which isn't guaranteed to be installed everywhere this
+  script runs (it wasn't, in this same sandbox) — fixed to use Python's
+  stdlib `sqlite3` module instead, since Python is guaranteed to be
+  present (it's the app's own runtime). `restore.sh` never deletes the
+  SQLite file it's replacing outright — it's moved aside with a
+  `.bak-<timestamp>` suffix first, extending §0.1's "nothing is ever
+  hard-deleted" posture to this operational script too, not just the
+  application's own data model.

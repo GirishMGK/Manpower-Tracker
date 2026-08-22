@@ -1,12 +1,14 @@
-# User Guide — current build (Phases P0–P10)
+# User Guide — current build (Phases P0–P11, spec complete)
 
 This covers what's actually usable today: authentication, master data,
 engagements, leave, the allocation/conflict-engine API (R1–R24), the
 scheduler board, capacity utilisation, the C1–C6 dashboards, the
 RP-01..RP-14 report library, independence declarations, resource requests,
-best-effort email notifications, timesheets with actuals and engagement
-margin, what-if scenario planning, and engagement roll-forward. See the
-root `README.md` for the phase roadmap.
+best-effort email notifications (incl. a scheduled weekly digest),
+timesheets with actuals and engagement margin, what-if scenario planning,
+engagement roll-forward, a mobile self-service `/me` view with an ICS
+calendar feed, and backup/restore. Every phase in the original P0–P11
+roadmap is built — see the root `README.md` for the full history.
 
 ## Running it locally
 
@@ -253,7 +255,60 @@ Confirming a booking (`POST /allocations/{id}/approve`) or cancelling one
 member. It's a no-op unless `RMS_SMTP_HOST` is set in the backend's `.env`
 — nothing to configure for local/dev use, and a down or unconfigured mail
 server never blocks the booking itself (the send happens after the write
-has already committed, and any failure is logged, not raised).
+has already committed, and any failure is logged, not raised). A second,
+independent scheduled job sends each staff member (with an email on file
+and at least one confirmed booking that week) a digest of their upcoming
+week's bookings every Monday at 07:00 IST — same no-op-if-unconfigured
+behaviour, and it skips anyone with nothing booked rather than emailing an
+empty digest.
+
+## Mobile self-service — /me (§10.2)
+
+`/me` — a single-column, phone-width page: your own profile, leave
+balance for the current financial year (1 Apr–31 Mar), upcoming bookings
+(next 60 days), and timesheet entries from the last 30 days. Nothing here
+is editable — booking/leave/timesheet actions still go through the
+scheduler, leave and timesheet APIs; this is a read-only "what's coming
+up" view. The underlying API (`GET /api/v1/me`, `/me/allocations`,
+`/me/leave-balance`, `/me/timesheets`) is scoped to whoever's logged in —
+there's no way to ask it for anyone else's data. A login with no linked
+staff record (a pure admin/system account) sees a short "nothing to show"
+message instead.
+
+"Download .ics" on the bookings card pulls a calendar file
+(`GET /me/calendar.ics`, ±30 days/1 year of the booking window) you can
+import into any calendar app. It's authenticated the same way as the rest
+of the API, which means an actual calendar app's "subscribe by URL"
+feature can't pull it directly (those don't send a login token) — treat
+it as a one-time export for now, not a live-syncing subscription.
+
+## Backup and restore
+
+`backend/scripts/backup.sh` / `restore.sh` — auto-detect Postgres vs.
+SQLite from `RMS_DATABASE_URL` (reads `backend/.env` if present).
+
+```bash
+cd backend
+./scripts/backup.sh                    # writes backups/firm_rms_<timestamp>.{dump,db}
+./scripts/restore.sh backups/firm_rms_20260101T000000Z.dump [--yes]
+```
+
+Postgres uses `pg_dump --format=custom` / `pg_restore --clean --if-exists`
+against whatever `RMS_DATABASE_URL` points at (the docker-compose `db`
+service by default) — restoring **overwrites the target database**, which
+is why it prompts for confirmation unless you pass `--yes` (for a
+scripted drill or CI). SQLite is a plain file copy; restoring moves the
+existing `.db` file aside with a `.bak-<timestamp>` suffix first rather
+than deleting it. `backup.sh` keeps the last 30 backups in its output
+directory and prunes older ones, and verifies the backup it just wrote is
+actually readable before finishing (`pg_restore --list` / a SQLite
+integrity check).
+
+Both paths were actually drilled while building this, not just written:
+seed the full 300-staff dataset, back it up, destroy the live data
+(`TRUNCATE ... CASCADE` for Postgres, deleting the file for SQLite),
+restore, and confirm every table's row count matches — see
+`docs/decisions.md` for the exact numbers and a bug the drill caught.
 
 ## Nothing is ever hard-deleted (§0.1)
 

@@ -6,6 +6,7 @@ __pycache__/
 venv/
 *.db
 backend/firm_rms_dev.db
+backend/backups/
 
 # Node
 node_modules/
