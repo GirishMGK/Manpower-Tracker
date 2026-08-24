@@ -91,7 +91,15 @@ def _open_browser_when_ready() -> None:
             break
         except Exception:
             time.sleep(0.5)
-    webbrowser.open(url)
+    try:
+        webbrowser.open(url)
+    except Exception:
+        # No default browser registered (e.g. a headless machine) — the
+        # server is still up at `url`; this only affects the auto-open
+        # convenience, not the app itself. Runs on a daemon thread, so an
+        # unguarded exception here wouldn't crash the app either way, but
+        # printing beats a silent stack trace in the console window.
+        print(f"Could not open a browser automatically — open {url} yourself.")
 
 
 def main() -> None:
@@ -114,12 +122,24 @@ def main() -> None:
 
     import uvicorn
 
+    # Import the FastAPI app object itself rather than passing uvicorn the
+    # "app.main:app" string form. Two reasons, both specific to running
+    # frozen: (1) it's what makes PyInstaller's static analysis actually
+    # trace and bundle app.main and everything it pulls in (all the
+    # app.api.v1 routers, services, etc.) — a string is opaque to that
+    # analysis, so without this import elsewhere, none of it gets bundled
+    # and the frozen exe crashes the instant uvicorn tries to import it;
+    # (2) it sidesteps uvicorn's import-by-string machinery at runtime
+    # entirely, which is one less thing that has to work correctly inside
+    # a frozen bundle.
+    from app.main import app as fastapi_app
+
     print(f"Firm RMS is starting — your browser will open at http://{HOST}:{PORT}")
     print(f"Data stored at: {data_dir}")
     print("Default login: admin@firm.local / ChangeMe!2026 (you'll be asked to change it)")
     print("Close this window to stop the app.")
 
-    uvicorn.run("app.main:app", host=HOST, port=PORT, log_level="info")
+    uvicorn.run(fastapi_app, host=HOST, port=PORT, log_level="info")
 
 
 if __name__ == "__main__":

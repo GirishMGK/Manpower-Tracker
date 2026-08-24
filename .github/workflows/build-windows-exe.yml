@@ -46,18 +46,29 @@ jobs:
 
       - name: Smoke-test the packaged exe
         run: |
-          $proc = Start-Process -FilePath "dist\firm-rms\firm-rms.exe" -PassThru
+          # Redirect the exe's own console output to files (it's a console
+          # build — see firm_rms.spec's console=True) so a failure here
+          # shows the real Python traceback, not just "no response".
+          $proc = Start-Process -FilePath "dist\firm-rms\firm-rms.exe" `
+            -RedirectStandardOutput "exe-stdout.log" -RedirectStandardError "exe-stderr.log" -PassThru
           $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            Start-Sleep -Seconds 1
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 2
+            if ($proc.HasExited) { break }
             try {
               $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing -TimeoutSec 2
               if ($resp.StatusCode -eq 200) { $ok = $true; break }
             } catch {}
           }
-          Stop-Process -Id $proc.Id -Force
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+
+          Write-Host "---- firm-rms.exe stdout ----"
+          Get-Content "exe-stdout.log" -ErrorAction SilentlyContinue
+          Write-Host "---- firm-rms.exe stderr ----"
+          Get-Content "exe-stderr.log" -ErrorAction SilentlyContinue
+
           if (-not $ok) {
-            Write-Error "firm-rms.exe did not respond on :8000/health within 60s"
+            Write-Error "firm-rms.exe did not respond on :8000/health (exited early: $($proc.HasExited), exit code: $($proc.ExitCode))"
             exit 1
           }
           Write-Host "firm-rms.exe started and responded to /health OK"
