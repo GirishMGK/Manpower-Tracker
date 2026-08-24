@@ -14,7 +14,11 @@
 from pathlib import Path
 
 block_cipher = None
-repo_root = Path(SPECPATH)
+# SPECPATH is the directory *containing this spec file* (desktop/), not the
+# repo root — easy to get backwards, and PyInstaller fails fast if it is:
+# "script '.../desktop/desktop/launcher.py' not found".
+spec_dir = Path(SPECPATH)
+repo_root = spec_dir.parent
 backend_dir = repo_root / "backend"
 frontend_dist = repo_root / "frontend" / "dist"
 
@@ -48,7 +52,7 @@ hiddenimports = [
 ]
 
 a = Analysis(
-    [str(repo_root / "desktop" / "launcher.py")],
+    [str(spec_dir / "launcher.py")],
     pathex=[str(backend_dir)],
     binaries=[],
     datas=datas,
