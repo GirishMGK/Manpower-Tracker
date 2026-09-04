@@ -12,7 +12,17 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from app.models.enums import Designation, EmploymentStatus, EntityClass, RelationshipStatus, RiskRating, StaffCategory
+from app.models.enums import (
+    ClientPriority,
+    Designation,
+    EmploymentStatus,
+    EntityClass,
+    PracticingFirm,
+    RelationshipStatus,
+    RiskRating,
+    ServiceType,
+    StaffCategory,
+)
 from seed.seed_data import FIRST_NAMES, LAST_NAMES
 
 random.seed(7)
@@ -40,8 +50,13 @@ CLIENT_COLUMNS = [
     ("entity_class", "Legal entity classification", True, [e.value for e in EntityClass]),
     ("relationship_status", "Firm relationship status", False, [e.value for e in RelationshipStatus]),
     ("risk_rating", "Audit risk rating", False, [e.value for e in RiskRating]),
-    ("sector", "Industry sector", False, None),
+    ("sector", "Industry sector / nature of business", False, None),
     ("is_pie", "Public interest entity? TRUE/FALSE", False, ["TRUE", "FALSE"]),
+    ("is_listed", "Stock-exchange listed? TRUE/FALSE", False, ["TRUE", "FALSE"]),
+    ("priority", "Client priority", False, [e.value for e in ClientPriority]),
+    ("is_mnc", "Multinational? TRUE/FALSE", False, ["TRUE", "FALSE"]),
+    ("practicing_firm", "Which practicing firm the engagement sits under", False, [e.value for e in PracticingFirm]),
+    ("primary_service_type", "Primary type of engagement", False, [e.value for e in ServiceType]),
 ]
 
 
@@ -97,6 +112,11 @@ def build() -> None:
             None, random.choice(entity_classes).value, RelationshipStatus.ACTIVE.value,
             random.choice(list(RiskRating)).value, random.choice(["BFSI", "Manufacturing", "IT", "Pharma"]),
             "TRUE" if i % 11 == 0 else "FALSE",
+            "TRUE" if i % 13 == 0 else "FALSE",
+            random.choice(list(ClientPriority)).value,
+            "TRUE" if i % 9 == 0 else "FALSE",
+            random.choice(list(PracticingFirm)).value,
+            random.choice(list(ServiceType)).value,
         ])
     for idx, (col, _desc, _req, allowed) in enumerate(CLIENT_COLUMNS, start=1):
         if allowed:

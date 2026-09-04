@@ -119,6 +119,34 @@ import a spreadsheet in bulk. This exists purely as a frontend for the API
 described below; ADMIN, HR and RESOURCE_MANAGER roles can use it (matches
 `IMPORT_ROLES`/`WRITE_ROLES` on the backend).
 
+The Add-staff form is: Designation (Partner/Senior Manager/Manager/
+Executive/Article), Name, Employee code, Status (Active/Left), Work
+location (Hyderabad/Bangalore/Mumbai/Chennai/Delhi), Date of joining — a
+firm-specific subset of the fuller `Designation`/`StaffCategory` vocabulary
+the backend still carries for everything else (reports, the conflict
+engine). "Mark exited" on a staff row is the explicit admin action for
+"this person resigned" (sets `employment_status=EXITED` + today's date);
+there's deliberately no generic edit-status dropdown for this — it's a
+one-way action, same as a real offboarding.
+
+The Add-client form covers: Name, Entity type (Listed/Non-Listed —
+`is_listed`), Nature (legal structure — `entity_class`, extended with
+Section 8/Co-operative society/Sole proprietorship/Partnership/Others),
+Type of engagement (`primary_service_type`), Status (Active/Inactive —
+`relationship_status`), Partner responsible (a fixed list of named
+partners — typing one that doesn't exist yet auto-creates that Staff
+record as a PARTNER), Priority (`priority`), MNC status (`is_mnc`), Group
+(free text — resolves/creates a `ClientGroup` by name), Firm (BCO/KSR —
+`practicing_firm`), Nature of business (stored in the existing `sector`
+field). `is_listed`/`priority`/`is_mnc`/`practicing_firm`/
+`primary_service_type` were added to the `clients` table for this — see
+`alembic/versions/0003_client_masters_fields.py`. Existing SQLite
+databases (the desktop app, a bare local dev checkout — anything that
+doesn't run `alembic upgrade head` the way docker-compose does) pick up
+new columns like these automatically on next start via a small self-heal
+in `app.db.session.init_db()`, since `create_all()` alone never alters an
+already-existing table.
+
 `backend/seed/sample_masters.xlsx` is a ready-to-use template: a Data
 Dictionary sheet plus a "staff" sheet (300 sample rows) and a "clients"
 sheet (200 sample rows), with dropdown-validated enum columns. Regenerate

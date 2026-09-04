@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Upload, UserPlus } from "lucide-react";
-import { useRef, useState } from "react";
+import { Download, Upload, UserPlus, UserX } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "@/lib/api";
+import { today } from "@/lib/dates";
 import {
   type ClientRow,
   type ImportSummary,
@@ -14,46 +16,81 @@ import {
   downloadStaffErrorWorkbook,
   fetchClientsList,
   fetchStaffList,
+  markStaffExited,
+  resolveGroupIdByName,
+  resolveOfficeIdByCity,
+  resolvePartnerIdByName,
   validateClientsImport,
   validateStaffImport,
 } from "@/lib/mastersApi";
-import { fetchOffices } from "@/lib/schedulerApi";
 
-// Designation -> grade_rank, mirroring backend/app/models/enums.py's
-// DESIGNATION_GRADE_RANK. The API requires grade_rank as a plain int; this
-// spares whoever's filling in the form from having to know the numbering.
-const DESIGNATIONS: { value: string; label: string; gradeRank: number }[] = [
-  { value: "MANAGING_PARTNER", label: "Managing Partner", gradeRank: 1 },
-  { value: "PARTNER", label: "Partner", gradeRank: 2 },
-  { value: "ASSOCIATE_PARTNER", label: "Associate Partner", gradeRank: 3 },
-  { value: "DIRECTOR", label: "Director", gradeRank: 3 },
-  { value: "SENIOR_MANAGER", label: "Senior Manager", gradeRank: 4 },
-  { value: "MANAGER", label: "Manager", gradeRank: 5 },
-  { value: "ASSISTANT_MANAGER", label: "Assistant Manager", gradeRank: 6 },
-  { value: "SENIOR_ASSOCIATE", label: "Senior Associate", gradeRank: 7 },
-  { value: "ASSOCIATE", label: "Associate", gradeRank: 8 },
-  { value: "EXECUTIVE", label: "Executive", gradeRank: 9 },
-  { value: "TRAINEE", label: "Trainee", gradeRank: 10 },
-  { value: "ARTICLE_Y3", label: "Article (Year 3)", gradeRank: 10 },
-  { value: "ARTICLE_Y2", label: "Article (Year 2)", gradeRank: 11 },
-  { value: "ARTICLE_Y1", label: "Article (Year 1)", gradeRank: 12 },
+// Every dropdown below is the firm's own fixed list, mapped onto the
+// broader backend enums (app/models/enums.py) — the backend keeps its
+// full vocabulary (other tooling/reports rely on it), this page just
+// exposes the subset that matches how this firm actually works.
+
+const DESIGNATIONS: { label: string; designation: string; staffCategory: string; gradeRank: number }[] = [
+  { label: "Partner", designation: "PARTNER", staffCategory: "PARTNER", gradeRank: 2 },
+  { label: "Senior Manager", designation: "SENIOR_MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 4 },
+  { label: "Manager", designation: "MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 5 },
+  { label: "Executive", designation: "EXECUTIVE", staffCategory: "EMPLOYEE_OTHER_PROF", gradeRank: 9 },
+  { label: "Article", designation: "ARTICLE_Y1", staffCategory: "ARTICLED_ASSISTANT", gradeRank: 12 },
 ];
 
-const STAFF_CATEGORIES = [
-  "PARTNER", "DIRECTOR", "EMPLOYEE_CA", "EMPLOYEE_OTHER_PROF", "EMPLOYEE_SEMI_QUALIFIED",
-  "ARTICLED_ASSISTANT", "INDUSTRIAL_TRAINEE", "PAID_ASSISTANT", "SUPPORT_STAFF", "CONSULTANT_EXTERNAL",
+const STAFF_STATUSES = [
+  { label: "Active", value: "ACTIVE" },
+  { label: "Left", value: "EXITED" },
 ];
 
-const ENTITY_CLASSES = [
-  "LISTED", "UNLISTED_PUBLIC", "PRIVATE", "LLP", "BANK", "NBFC", "INSURANCE",
-  "GOVT_COMPANY", "TRUST", "FOREIGN_SUB",
+const WORK_LOCATIONS = ["Hyderabad", "Bangalore", "Mumbai", "Chennai", "Delhi"];
+
+const NATURE_OPTIONS: { label: string; value: string }[] = [
+  { label: "Private", value: "PRIVATE" },
+  { label: "Public", value: "UNLISTED_PUBLIC" },
+  { label: "LLP", value: "LLP" },
+  { label: "Section 8", value: "SECTION_8" },
+  { label: "NBFC", value: "NBFC" },
+  { label: "Banking", value: "BANK" },
+  { label: "Insurance", value: "INSURANCE" },
+  { label: "Trust", value: "TRUST" },
+  { label: "Co-operative society", value: "COOPERATIVE_SOCIETY" },
+  { label: "Sole proprietorship", value: "SOLE_PROPRIETORSHIP" },
+  { label: "Partnership", value: "PARTNERSHIP_FIRM" },
+  { label: "Others", value: "OTHERS" },
 ];
 
-const RELATIONSHIP_STATUSES = ["PROSPECT", "ACTIVE", "DORMANT", "EXITED"];
-const RISK_RATINGS = ["LOW", "MEDIUM", "HIGH", "SIGNIFICANT"];
+const ENGAGEMENT_TYPES: { label: string; value: string }[] = [
+  { label: "Statutory audit", value: "STATUTORY_AUDIT" },
+  { label: "Limited review", value: "LIMITED_REVIEW" },
+  { label: "Internal audit", value: "INTERNAL_AUDIT" },
+  { label: "Tax audit", value: "TAX_AUDIT" },
+  { label: "GST Audit", value: "GST_AUDIT" },
+  { label: "ITR", value: "ITR" },
+  { label: "Tax works", value: "TAX_WORKS" },
+  { label: "Consultancy", value: "CONSULTANCY" },
+  { label: "Opinion", value: "OPINION" },
+  { label: "Others", value: "OTHER" },
+];
+
+const CLIENT_STATUSES = [
+  { label: "Active", value: "ACTIVE" },
+  { label: "Inactive", value: "INACTIVE" },
+];
+
+const PARTNERS = [
+  "Srinivas Gogineni", "Hitesh Kumar P", "Ranganayakulu B", "Sudarshan Gupta MS",
+  "Bhargava Anumolu", "Chandrshekar B", "Krishnamohan Reddy JS",
+];
+
+const PRIORITIES = ["HIGH", "MEDIUM", "LOW"];
+const FIRMS = ["BCO", "KSR"];
 
 function labelize(value: string): string {
   return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
+function findLabel(options: { label: string; value: string }[], value: string): string {
+  return options.find((o) => o.value === value)?.label ?? labelize(value);
 }
 
 export default function Masters() {
@@ -112,7 +149,6 @@ function ImportPanel({
   onDownloadErrors: (file: File) => Promise<void>;
   onImported: () => void;
 }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [busy, setBusy] = useState<"validate" | "commit" | null>(null);
@@ -154,7 +190,6 @@ function ImportPanel({
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input
-          ref={fileInputRef}
           type="file"
           accept=".xlsx"
           onChange={(e) => {
@@ -227,12 +262,19 @@ function ImportPanel({
   );
 }
 
+// ---------------------------------------------------------------- Staff
+
 function StaffPanel() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const listQuery = useQuery({ queryKey: ["masters-staff", q], queryFn: () => fetchStaffList(q) });
-  const officesQuery = useQuery({ queryKey: ["offices"], queryFn: fetchOffices, staleTime: 5 * 60_000 });
+  const officesQuery = useQuery({
+    queryKey: ["offices"],
+    queryFn: async () => (await api.get<{ id: string; name: string }[]>("/offices")).data,
+    staleTime: 5 * 60_000,
+  });
+  const officeNameById = new Map((officesQuery.data ?? []).map((o) => [o.id, o.name]));
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
@@ -254,15 +296,20 @@ function StaffPanel() {
 
         {showAdd && (
           <StaffAddForm
-            offices={officesQuery.data ?? []}
             onDone={() => {
               setShowAdd(false);
               qc.invalidateQueries({ queryKey: ["masters-staff"] });
+              qc.invalidateQueries({ queryKey: ["offices"] });
             }}
           />
         )}
 
-        <StaffTable rows={listQuery.data ?? []} loading={listQuery.isLoading} />
+        <StaffTable
+          rows={listQuery.data ?? []}
+          loading={listQuery.isLoading}
+          officeNameById={officeNameById}
+          onExited={() => qc.invalidateQueries({ queryKey: ["masters-staff"] })}
+        />
       </Card>
 
       <ImportPanel
@@ -276,41 +323,88 @@ function StaffPanel() {
   );
 }
 
-function StaffTable({ rows, loading }: { rows: StaffRow[]; loading: boolean }) {
+function StaffTable({
+  rows,
+  loading,
+  officeNameById,
+  onExited,
+}: {
+  rows: StaffRow[];
+  loading: boolean;
+  officeNameById: Map<string, string>;
+  onExited: () => void;
+}) {
+  const [exiting, setExiting] = useState<string | null>(null);
+
+  async function handleMarkExited(row: StaffRow) {
+    if (!confirm(`Mark ${row.full_name} as Left (resigned/exited) as of today?`)) return;
+    setExiting(row.id);
+    try {
+      await markStaffExited(row.id, today());
+      onExited();
+    } finally {
+      setExiting(null);
+    }
+  }
+
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (rows.length === 0) return <p className="text-sm text-slate-500">No staff yet — add one above or import a spreadsheet.</p>;
   return (
-    <div className="max-h-[32rem] overflow-y-auto rounded-md border border-slate-200">
+    <div className="max-h-[32rem] overflow-auto rounded-md border border-slate-200">
       <table className="w-full text-left text-sm">
         <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2">Code</th>
             <th className="px-3 py-2">Name</th>
             <th className="px-3 py-2">Designation</th>
-            <th className="px-3 py-2">Category</th>
+            <th className="px-3 py-2">Work location</th>
+            <th className="px-3 py-2">Date of joining</th>
             <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {rows.map((r) => (
-            <tr key={r.id} className={r.is_active ? "" : "opacity-50"}>
-              <td className="px-3 py-1.5 font-mono text-xs">{r.employee_code}</td>
-              <td className="px-3 py-1.5">{r.full_name}</td>
-              <td className="px-3 py-1.5">{labelize(r.designation)}</td>
-              <td className="px-3 py-1.5">{labelize(r.staff_category)}</td>
-              <td className="px-3 py-1.5">{labelize(r.employment_status)}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const isLeft = r.employment_status === "EXITED";
+            return (
+              <tr key={r.id} className={isLeft ? "opacity-50" : ""}>
+                <td className="px-3 py-1.5 font-mono text-xs">{r.employee_code}</td>
+                <td className="px-3 py-1.5">{r.full_name}</td>
+                <td className="px-3 py-1.5">{labelize(r.designation)}</td>
+                <td className="px-3 py-1.5">{r.base_office_id ? (officeNameById.get(r.base_office_id) ?? "—") : "—"}</td>
+                <td className="px-3 py-1.5">{r.date_of_joining ?? "—"}</td>
+                <td className="px-3 py-1.5">
+                  <span className={isLeft ? "text-slate-500" : "text-emerald-700"}>{isLeft ? "Left" : "Active"}</span>
+                </td>
+                <td className="px-3 py-1.5">
+                  {!isLeft && (
+                    <button
+                      title="Mark as exited"
+                      disabled={exiting === r.id}
+                      onClick={() => handleMarkExited(r)}
+                      className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
+                    >
+                      <UserX size={12} /> {exiting === r.id ? "…" : "Mark exited"}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function StaffAddForm({ offices, onDone }: { offices: { id: string; name: string }[]; onDone: () => void }) {
+function StaffAddForm({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState({
-    employee_code: "", full_name: "", official_email: "", mobile: "",
-    staff_category: "EMPLOYEE_CA", designation: "ASSOCIATE", base_office_id: "",
+    employee_code: "",
+    full_name: "",
+    designationLabel: DESIGNATIONS[0].label,
+    status: "ACTIVE",
+    workLocation: WORK_LOCATIONS[0],
+    date_of_joining: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -320,17 +414,19 @@ function StaffAddForm({ offices, onDone }: { offices: { id: string; name: string
     setSaving(true);
     setError(null);
     try {
-      const gradeRank = DESIGNATIONS.find((d) => d.value === form.designation)?.gradeRank ?? 8;
+      const d = DESIGNATIONS.find((x) => x.label === form.designationLabel) ?? DESIGNATIONS[0];
+      const officeId = await resolveOfficeIdByCity(form.workLocation);
       await createStaff({
         employee_code: form.employee_code,
         full_name: form.full_name,
-        official_email: form.official_email || null,
-        mobile: form.mobile || null,
-        staff_category: form.staff_category,
-        designation: form.designation,
-        grade_rank: gradeRank,
-        base_office_id: form.base_office_id || null,
-        current_office_id: form.base_office_id || null,
+        staff_category: d.staffCategory,
+        designation: d.designation,
+        grade_rank: d.gradeRank,
+        employment_status: form.status,
+        base_office_id: officeId,
+        current_office_id: officeId,
+        date_of_joining: form.date_of_joining || null,
+        date_of_exit: form.status === "EXITED" ? today() : null,
       });
       onDone();
     } catch (e2) {
@@ -349,40 +445,34 @@ function StaffAddForm({ offices, onDone }: { offices: { id: string; name: string
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
       </label>
       <label className="text-xs font-medium text-slate-600 sm:col-span-2">
-        Full name *
+        Name *
         <input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
       </label>
       <label className="text-xs font-medium text-slate-600">
-        Email
-        <input type="email" value={form.official_email} onChange={(e) => setForm({ ...form, official_email: e.target.value })}
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
-      </label>
-      <label className="text-xs font-medium text-slate-600">
-        Mobile
-        <input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })}
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
-      </label>
-      <label className="text-xs font-medium text-slate-600">
-        Office
-        <select value={form.base_office_id} onChange={(e) => setForm({ ...form, base_office_id: e.target.value })}
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          <option value="">—</option>
-          {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
-      </label>
-      <label className="text-xs font-medium text-slate-600">
-        Category *
-        <select required value={form.staff_category} onChange={(e) => setForm({ ...form, staff_category: e.target.value })}
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          {STAFF_CATEGORIES.map((c) => <option key={c} value={c}>{labelize(c)}</option>)}
-        </select>
-      </label>
-      <label className="text-xs font-medium text-slate-600">
         Designation *
-        <select required value={form.designation} onChange={(e) => setForm({ ...form, designation: e.target.value })}
+        <select required value={form.designationLabel} onChange={(e) => setForm({ ...form, designationLabel: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          {DESIGNATIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+          {DESIGNATIONS.map((d) => <option key={d.label} value={d.label}>{d.label}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Work location *
+        <select required value={form.workLocation} onChange={(e) => setForm({ ...form, workLocation: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {WORK_LOCATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Date of joining
+        <input type="date" value={form.date_of_joining} onChange={(e) => setForm({ ...form, date_of_joining: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Status *
+        <select required value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {STAFF_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </label>
       <div className="col-span-full flex items-center gap-3">
@@ -396,11 +486,19 @@ function StaffAddForm({ offices, onDone }: { offices: { id: string; name: string
   );
 }
 
+// -------------------------------------------------------------- Clients
+
 function ClientsPanel() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const listQuery = useQuery({ queryKey: ["masters-clients", q], queryFn: () => fetchClientsList(q) });
+  const partnersQuery = useQuery({
+    queryKey: ["partners-lookup"],
+    queryFn: async () => (await api.get<{ id: string; full_name: string }[]>("/staff", { params: { staff_category: "PARTNER", limit: 500 } })).data,
+    staleTime: 5 * 60_000,
+  });
+  const partnerNameById = new Map((partnersQuery.data ?? []).map((p) => [p.id, p.full_name]));
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
@@ -425,11 +523,12 @@ function ClientsPanel() {
             onDone={() => {
               setShowAdd(false);
               qc.invalidateQueries({ queryKey: ["masters-clients"] });
+              qc.invalidateQueries({ queryKey: ["partners-lookup"] });
             }}
           />
         )}
 
-        <ClientsTable rows={listQuery.data ?? []} loading={listQuery.isLoading} />
+        <ClientsTable rows={listQuery.data ?? []} loading={listQuery.isLoading} partnerNameById={partnerNameById} />
       </Card>
 
       <ImportPanel
@@ -443,19 +542,32 @@ function ClientsPanel() {
   );
 }
 
-function ClientsTable({ rows, loading }: { rows: ClientRow[]; loading: boolean }) {
+function ClientsTable({
+  rows,
+  loading,
+  partnerNameById,
+}: {
+  rows: ClientRow[];
+  loading: boolean;
+  partnerNameById: Map<string, string>;
+}) {
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (rows.length === 0) return <p className="text-sm text-slate-500">No clients yet — add one above or import a spreadsheet.</p>;
   return (
-    <div className="max-h-[32rem] overflow-y-auto rounded-md border border-slate-200">
+    <div className="max-h-[32rem] overflow-auto rounded-md border border-slate-200">
       <table className="w-full text-left text-sm">
         <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2">Code</th>
             <th className="px-3 py-2">Name</th>
-            <th className="px-3 py-2">Entity class</th>
-            <th className="px-3 py-2">Relationship</th>
-            <th className="px-3 py-2">Risk</th>
+            <th className="px-3 py-2">Entity type</th>
+            <th className="px-3 py-2">Nature</th>
+            <th className="px-3 py-2">Engagement</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Partner</th>
+            <th className="px-3 py-2">Priority</th>
+            <th className="px-3 py-2">MNC</th>
+            <th className="px-3 py-2">Firm</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -463,9 +575,14 @@ function ClientsTable({ rows, loading }: { rows: ClientRow[]; loading: boolean }
             <tr key={r.id} className={r.is_active ? "" : "opacity-50"}>
               <td className="px-3 py-1.5 font-mono text-xs">{r.client_code}</td>
               <td className="px-3 py-1.5">{r.name}</td>
-              <td className="px-3 py-1.5">{labelize(r.entity_class)}</td>
-              <td className="px-3 py-1.5">{labelize(r.relationship_status)}</td>
-              <td className="px-3 py-1.5">{labelize(r.risk_rating)}</td>
+              <td className="px-3 py-1.5">{r.is_listed ? "Listed" : "Non-Listed"}</td>
+              <td className="px-3 py-1.5">{findLabel(NATURE_OPTIONS, r.entity_class)}</td>
+              <td className="px-3 py-1.5">{r.primary_service_type ? findLabel(ENGAGEMENT_TYPES, r.primary_service_type) : "—"}</td>
+              <td className="px-3 py-1.5">{r.relationship_status === "ACTIVE" ? "Active" : r.relationship_status === "INACTIVE" ? "Inactive" : labelize(r.relationship_status)}</td>
+              <td className="px-3 py-1.5">{r.relationship_partner_id ? (partnerNameById.get(r.relationship_partner_id) ?? "—") : "—"}</td>
+              <td className="px-3 py-1.5">{labelize(r.priority)}</td>
+              <td className="px-3 py-1.5">{r.is_mnc ? "Yes" : "No"}</td>
+              <td className="px-3 py-1.5">{r.practicing_firm ?? "—"}</td>
             </tr>
           ))}
         </tbody>
@@ -476,8 +593,18 @@ function ClientsTable({ rows, loading }: { rows: ClientRow[]; loading: boolean }
 
 function ClientAddForm({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState({
-    client_code: "", name: "", entity_class: "PRIVATE",
-    relationship_status: "PROSPECT", risk_rating: "MEDIUM",
+    client_code: "",
+    name: "",
+    isListed: "false",
+    nature: NATURE_OPTIONS[0].value,
+    engagementType: ENGAGEMENT_TYPES[0].value,
+    status: "ACTIVE",
+    partner: PARTNERS[0],
+    priority: "MEDIUM",
+    isMnc: "false",
+    group: "",
+    firm: FIRMS[0],
+    natureOfBusiness: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -487,7 +614,24 @@ function ClientAddForm({ onDone }: { onDone: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await createClient(form);
+      const [partnerId, groupId] = await Promise.all([
+        resolvePartnerIdByName(form.partner),
+        resolveGroupIdByName(form.group),
+      ]);
+      await createClient({
+        client_code: form.client_code,
+        name: form.name,
+        is_listed: form.isListed === "true",
+        entity_class: form.nature,
+        primary_service_type: form.engagementType,
+        relationship_status: form.status,
+        relationship_partner_id: partnerId,
+        priority: form.priority,
+        is_mnc: form.isMnc === "true",
+        group_id: groupId,
+        practicing_firm: form.firm,
+        sector: form.natureOfBusiness || null,
+      });
       onDone();
     } catch (e2) {
       const detail = (e2 as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -505,30 +649,78 @@ function ClientAddForm({ onDone }: { onDone: () => void }) {
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
       </label>
       <label className="text-xs font-medium text-slate-600 sm:col-span-2">
-        Name *
+        Name of the client *
         <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
       </label>
       <label className="text-xs font-medium text-slate-600">
-        Entity class *
-        <select required value={form.entity_class} onChange={(e) => setForm({ ...form, entity_class: e.target.value })}
+        Entity type *
+        <select required value={form.isListed} onChange={(e) => setForm({ ...form, isListed: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          {ENTITY_CLASSES.map((c) => <option key={c} value={c}>{labelize(c)}</option>)}
+          <option value="false">Non-Listed</option>
+          <option value="true">Listed</option>
         </select>
       </label>
       <label className="text-xs font-medium text-slate-600">
-        Relationship
-        <select value={form.relationship_status} onChange={(e) => setForm({ ...form, relationship_status: e.target.value })}
+        Nature *
+        <select required value={form.nature} onChange={(e) => setForm({ ...form, nature: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          {RELATIONSHIP_STATUSES.map((s) => <option key={s} value={s}>{labelize(s)}</option>)}
+          {NATURE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium text-slate-600">
-        Risk rating
-        <select value={form.risk_rating} onChange={(e) => setForm({ ...form, risk_rating: e.target.value })}
+        Type of engagement
+        <select value={form.engagementType} onChange={(e) => setForm({ ...form, engagementType: e.target.value })}
           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          {RISK_RATINGS.map((r) => <option key={r} value={r}>{labelize(r)}</option>)}
+          {ENGAGEMENT_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Status *
+        <select required value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {CLIENT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Partner responsible *
+        <select required value={form.partner} onChange={(e) => setForm({ ...form, partner: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {PARTNERS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Priority
+        <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {PRIORITIES.map((p) => <option key={p} value={p}>{labelize(p)}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        MNC status
+        <select value={form.isMnc} onChange={(e) => setForm({ ...form, isMnc: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Group
+        <input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })}
+          placeholder="Type the group name…"
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+      </label>
+      <label className="text-xs font-medium text-slate-600">
+        Firm
+        <select value={form.firm} onChange={(e) => setForm({ ...form, firm: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
+          {FIRMS.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-600 sm:col-span-2">
+        Nature of business
+        <input value={form.natureOfBusiness} onChange={(e) => setForm({ ...form, natureOfBusiness: e.target.value })}
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
       </label>
       <div className="col-span-full flex items-center gap-3">
         <button type="submit" disabled={saving}

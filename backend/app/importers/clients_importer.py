@@ -1,5 +1,5 @@
 from app.importers.base import ImportResult, one_of, required, run_validators
-from app.models.enums import EntityClass, RelationshipStatus, RiskRating
+from app.models.enums import ClientPriority, EntityClass, PracticingFirm, RelationshipStatus, RiskRating, ServiceType
 
 VALIDATORS = [
     required("client_code"),
@@ -7,6 +7,9 @@ VALIDATORS = [
     one_of("entity_class", {e.value for e in EntityClass}),
     one_of("relationship_status", {e.value for e in RelationshipStatus}, required_field=False),
     one_of("risk_rating", {e.value for e in RiskRating}, required_field=False),
+    one_of("priority", {e.value for e in ClientPriority}, required_field=False),
+    one_of("practicing_firm", {e.value for e in PracticingFirm}, required_field=False),
+    one_of("primary_service_type", {e.value for e in ServiceType}, required_field=False),
 ]
 
 
@@ -24,4 +27,9 @@ def row_to_client_kwargs(row: dict) -> dict:
         risk_rating=(row.get("risk_rating") or RiskRating.MEDIUM.value).strip(),
         sector=row.get("sector") or None,
         is_pie=str(row.get("is_pie", "")).strip().upper() in ("TRUE", "1", "YES"),
+        is_listed=str(row.get("is_listed", "")).strip().upper() in ("TRUE", "1", "YES"),
+        priority=(row.get("priority") or ClientPriority.MEDIUM.value).strip(),
+        is_mnc=str(row.get("is_mnc", "")).strip().upper() in ("TRUE", "1", "YES"),
+        practicing_firm=(row.get("practicing_firm") or "").strip() or None,
+        primary_service_type=(row.get("primary_service_type") or "").strip() or None,
     )
