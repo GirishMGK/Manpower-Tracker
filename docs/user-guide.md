@@ -147,14 +147,32 @@ new columns like these automatically on next start via a small self-heal
 in `app.db.session.init_db()`, since `create_all()` alone never alters an
 already-existing table.
 
-`backend/seed/sample_masters.xlsx` is a ready-to-use template: a Data
-Dictionary sheet plus a "staff" sheet (300 sample rows) and a "clients"
-sheet (200 sample rows), with dropdown-validated enum columns. Regenerate
-it with `python -m seed.generate_sample_workbook`. `read_workbook_rows`
-looks for a sheet named "staff"/"clients" first and falls back to the
-first sheet otherwise, so a plain single-sheet export (the common
-real-world case) works too — only the named-sheet template needs the
-lookup at all.
+**"Download staff/clients template (.xlsx)"** in each import panel is the
+easiest way to get a file in the right shape — it's generated on the fly
+(`GET /api/v1/admin/import/{staff|clients}/template`,
+`app.importers.templates`), blank apart from one greyed-out example row,
+with the same dropdown choices as the Add-one form (Designation, Work
+location, Nature, Partner responsible, ...). Fill it in and upload it
+straight back through the same panel.
+
+The importers, the downloadable template, and the Add-one form's dropdown
+options all come from one place — `app.importers.friendly_values` — so a
+value typed into any of the three always means the same thing to the
+other two. Work location / Partner responsible / Group all resolve
+case-insensitively to an existing Office/Staff/ClientGroup record, or
+create one on first use (`app.importers.resolvers`), exactly like the
+Add-one form's own resolvers in `frontend/src/lib/mastersApi.ts` — so a
+freshly-typed office city or a new partner's name in row 1 of your
+spreadsheet works without setting anything up first.
+
+`backend/seed/sample_masters.xlsx` is a separate thing: pre-filled demo
+data (300 staff / 200 client rows, same column format as the template
+above) for trying the tool out, not something you'd fill in yourself.
+Regenerate it with `python -m seed.generate_sample_workbook`.
+`read_workbook_rows` looks for a sheet named "staff"/"clients" first and
+falls back to the first sheet otherwise, so a plain single-sheet export
+(the common real-world case, including the downloadable template above)
+works too — only this named-sheet demo file needs the lookup at all.
 
 Two-phase flow, both under `/api/v1/admin/import/{staff|clients}/`:
 

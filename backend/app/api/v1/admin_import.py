@@ -17,6 +17,7 @@ from app.core.deps import get_current_user, get_db, require_roles
 from app.importers.base import build_error_workbook, read_workbook_rows
 from app.importers.clients_importer import row_to_client_kwargs, validate_client_rows
 from app.importers.staff_importer import row_to_staff_kwargs, validate_staff_rows
+from app.importers.templates import build_clients_template, build_staff_template
 from app.models.client import Client
 from app.models.enums import AuditAction, UserRole
 from app.models.staff import Staff
@@ -35,6 +36,24 @@ def _summary(result, entity: str) -> dict:
         "error_count": len(result.errors),
         "errors": [e.__dict__ for e in result.errors[:2000]],
     }
+
+
+@router.get("/staff/template")
+async def download_staff_template(user: User = Depends(require_roles(*IMPORT_ROLES))) -> StreamingResponse:
+    return StreamingResponse(
+        BytesIO(build_staff_template()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=staff_import_template.xlsx"},
+    )
+
+
+@router.get("/clients/template")
+async def download_clients_template(user: User = Depends(require_roles(*IMPORT_ROLES))) -> StreamingResponse:
+    return StreamingResponse(
+        BytesIO(build_clients_template()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=clients_import_template.xlsx"},
+    )
 
 
 @router.post("/staff/validate")
@@ -80,7 +99,7 @@ async def commit_staff_import(
     committed = 0
     codes_seen: set[str] = set()
     for row in result.valid_rows:
-        kwargs = row_to_staff_kwargs(row)
+        kwargs = row_to_staff_kwargs(row, db, user.id)
         if kwargs["employee_code"] in codes_seen:
             continue
         codes_seen.add(kwargs["employee_code"])
@@ -146,7 +165,7 @@ async def commit_clients_import(
     committed = 0
     codes_seen: set[str] = set()
     for row in result.valid_rows:
-        kwargs = row_to_client_kwargs(row)
+        kwargs = row_to_client_kwargs(row, db, user.id)
         if kwargs["client_code"] in codes_seen:
             continue
         codes_seen.add(kwargs["client_code"])

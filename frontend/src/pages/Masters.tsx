@@ -13,7 +13,9 @@ import {
   createClient,
   createStaff,
   downloadClientsErrorWorkbook,
+  downloadClientsTemplate,
   downloadStaffErrorWorkbook,
+  downloadStaffTemplate,
   fetchClientsList,
   fetchStaffList,
   markStaffExited,
@@ -138,12 +140,14 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function ImportPanel({
   entityLabel,
+  onDownloadTemplate,
   onValidate,
   onCommit,
   onDownloadErrors,
   onImported,
 }: {
   entityLabel: string;
+  onDownloadTemplate: () => Promise<void>;
   onValidate: (file: File) => Promise<ImportSummary>;
   onCommit: (file: File, commitValidOnly: boolean) => Promise<ImportSummary>;
   onDownloadErrors: (file: File) => Promise<void>;
@@ -151,8 +155,20 @@ function ImportPanel({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
-  const [busy, setBusy] = useState<"validate" | "commit" | null>(null);
+  const [busy, setBusy] = useState<"validate" | "commit" | "template" | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function runDownloadTemplate() {
+    setBusy("template");
+    setError(null);
+    try {
+      await onDownloadTemplate();
+    } catch {
+      setError("Could not download the template — try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function runValidate() {
     if (!file) return;
@@ -185,9 +201,17 @@ function ImportPanel({
   return (
     <Card title={`Import ${entityLabel} from Excel`}>
       <p className="mb-3 text-sm text-slate-600">
-        Upload an .xlsx file. Nothing is saved until you click Commit — Validate first is a dry run that just
-        checks the file. Re-importing the same code updates that record instead of duplicating it.
+        Don't have a file yet? Download the blank template below, fill it in (it already has the right columns
+        and dropdown choices), then upload it here. Nothing is saved until you click Commit — Validate first is a
+        dry run that just checks the file. Re-importing the same code updates that record instead of duplicating it.
       </p>
+      <button
+        disabled={busy !== null}
+        onClick={runDownloadTemplate}
+        className="mb-3 inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+      >
+        <Download size={14} /> {busy === "template" ? "Downloading…" : `Download ${entityLabel} template (.xlsx)`}
+      </button>
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="file"
@@ -314,10 +338,14 @@ function StaffPanel() {
 
       <ImportPanel
         entityLabel="staff"
+        onDownloadTemplate={downloadStaffTemplate}
         onValidate={validateStaffImport}
         onCommit={commitStaffImport}
         onDownloadErrors={downloadStaffErrorWorkbook}
-        onImported={() => qc.invalidateQueries({ queryKey: ["masters-staff"] })}
+        onImported={() => {
+          qc.invalidateQueries({ queryKey: ["masters-staff"] });
+          qc.invalidateQueries({ queryKey: ["offices"] });
+        }}
       />
     </div>
   );
@@ -533,10 +561,14 @@ function ClientsPanel() {
 
       <ImportPanel
         entityLabel="clients"
+        onDownloadTemplate={downloadClientsTemplate}
         onValidate={validateClientsImport}
         onCommit={commitClientsImport}
         onDownloadErrors={downloadClientsErrorWorkbook}
-        onImported={() => qc.invalidateQueries({ queryKey: ["masters-clients"] })}
+        onImported={() => {
+          qc.invalidateQueries({ queryKey: ["masters-clients"] });
+          qc.invalidateQueries({ queryKey: ["partners-lookup"] });
+        }}
       />
     </div>
   );

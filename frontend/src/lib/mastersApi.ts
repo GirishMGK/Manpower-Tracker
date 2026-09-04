@@ -161,6 +161,16 @@ export const validateClientsImport = (file: File) => postImportFile("/admin/impo
 export const commitClientsImport = (file: File, commitValidOnly: boolean) =>
   postImportFile("/admin/import/clients/commit", file, commitValidOnly);
 
+export async function downloadStaffTemplate(): Promise<void> {
+  const { data } = await api.get("/admin/import/staff/template", { responseType: "blob" });
+  downloadBlob(data, "staff_import_template.xlsx");
+}
+
+export async function downloadClientsTemplate(): Promise<void> {
+  const { data } = await api.get("/admin/import/clients/template", { responseType: "blob" });
+  downloadBlob(data, "clients_import_template.xlsx");
+}
+
 export async function downloadStaffErrorWorkbook(file: File): Promise<void> {
   const form = new FormData();
   form.append("file", file);

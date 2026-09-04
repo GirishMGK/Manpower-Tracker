@@ -107,6 +107,32 @@ def one_of(field_name: str, allowed: set[str], *, required_field: bool = True) -
     return _v
 
 
+def one_of_label(field_name: str, allowed_labels, *, required_field: bool = True) -> ColumnValidator:
+    """Like `one_of`, but case-insensitive — for the friendly dropdown
+    labels (e.g. "Senior Manager") a hand-typed or copy-pasted Excel cell
+    may not match exactly on casing, unlike the raw enum-string columns
+    `one_of` was built for.
+    """
+    lowered = {label.lower() for label in allowed_labels}
+
+    def _v(row_number: int, row: dict) -> list[RowError]:
+        value = str(row.get(field_name, "")).strip()
+        if value == "":
+            if required_field:
+                return [RowError(row_number, field_name, value, "REQUIRED", f"{field_name} is required")]
+            return []
+        if value.lower() not in lowered:
+            return [
+                RowError(
+                    row_number, field_name, value, "INVALID_ENUM",
+                    f"{field_name}='{value}' is not one of {sorted(allowed_labels)}",
+                )
+            ]
+        return []
+
+    return _v
+
+
 def numeric(field_name: str, *, required_field: bool = False) -> ColumnValidator:
     def _v(row_number: int, row: dict) -> list[RowError]:
         value = str(row.get(field_name, "")).strip()
