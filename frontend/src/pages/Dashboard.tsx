@@ -9,10 +9,16 @@ export default function Dashboard() {
       <h1 className="text-2xl font-semibold text-slate-900">Welcome, {user?.full_name}</h1>
       <p className="mt-1 text-slate-500">Role: {user?.role}</p>
 
-      <div className="mt-6 flex gap-3">
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link
+          to="/masters"
+          className="inline-block rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+        >
+          Manage staff &amp; clients →
+        </Link>
         <Link
           to="/schedule"
-          className="inline-block rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          className="inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
         >
           Open scheduler board →
         </Link>

@@ -111,12 +111,22 @@ too — see the bottom of `backend/seed/seed_data.py` for the list
 (`rm@firm.local`, `hr@firm.local`, a sample `PARTNER` and `MANAGER`), all
 with password `Demo@2026`.
 
-## Bulk import (§10)
+## Staff &amp; clients — adding and importing (§10)
+
+**`/masters`** (also linked as "Manage staff & clients" from the home
+page) is the screen for this — add one record at a time via the form, or
+import a spreadsheet in bulk. This exists purely as a frontend for the API
+described below; ADMIN, HR and RESOURCE_MANAGER roles can use it (matches
+`IMPORT_ROLES`/`WRITE_ROLES` on the backend).
 
 `backend/seed/sample_masters.xlsx` is a ready-to-use template: a Data
-Dictionary sheet plus 300 sample staff rows and 200 sample client rows,
-with dropdown-validated enum columns. Regenerate it with
-`python -m seed.generate_sample_workbook`.
+Dictionary sheet plus a "staff" sheet (300 sample rows) and a "clients"
+sheet (200 sample rows), with dropdown-validated enum columns. Regenerate
+it with `python -m seed.generate_sample_workbook`. `read_workbook_rows`
+looks for a sheet named "staff"/"clients" first and falls back to the
+first sheet otherwise, so a plain single-sheet export (the common
+real-world case) works too — only the named-sheet template needs the
+lookup at all.
 
 Two-phase flow, both under `/api/v1/admin/import/{staff|clients}/`:
 

@@ -43,7 +43,7 @@ async def validate_staff_import(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(*IMPORT_ROLES)),
 ) -> dict:
-    rows = read_workbook_rows(await file.read())
+    rows = read_workbook_rows(await file.read(), sheet_name="staff")
     result = validate_staff_rows(rows)
     return _summary(result, "staff")
 
@@ -54,7 +54,7 @@ async def validate_staff_import_workbook(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(*IMPORT_ROLES)),
 ) -> StreamingResponse:
-    rows = read_workbook_rows(await file.read())
+    rows = read_workbook_rows(await file.read(), sheet_name="staff")
     result = validate_staff_rows(rows)
     xlsx_bytes = build_error_workbook(result.errors)
     return StreamingResponse(
@@ -71,7 +71,7 @@ async def commit_staff_import(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(*IMPORT_ROLES)),
 ) -> dict:
-    rows = read_workbook_rows(await file.read())
+    rows = read_workbook_rows(await file.read(), sheet_name="staff")
     result = validate_staff_rows(rows)
 
     if result.errors and not commit_valid_only:
@@ -109,9 +109,25 @@ async def validate_clients_import(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(*IMPORT_ROLES)),
 ) -> dict:
-    rows = read_workbook_rows(await file.read())
+    rows = read_workbook_rows(await file.read(), sheet_name="clients")
     result = validate_client_rows(rows)
     return _summary(result, "clients")
+
+
+@router.post("/clients/validate/error-workbook")
+async def validate_clients_import_workbook(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*IMPORT_ROLES)),
+) -> StreamingResponse:
+    rows = read_workbook_rows(await file.read(), sheet_name="clients")
+    result = validate_client_rows(rows)
+    xlsx_bytes = build_error_workbook(result.errors)
+    return StreamingResponse(
+        BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=clients_import_errors.xlsx"},
+    )
 
 
 @router.post("/clients/commit")
@@ -121,7 +137,7 @@ async def commit_clients_import(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(*IMPORT_ROLES)),
 ) -> dict:
-    rows = read_workbook_rows(await file.read())
+    rows = read_workbook_rows(await file.read(), sheet_name="clients")
     result = validate_client_rows(rows)
 
     if result.errors and not commit_valid_only:
