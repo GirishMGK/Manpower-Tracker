@@ -9,7 +9,13 @@
 ; firm_rms.spec, then: iscc desktop\installer.iss
 
 #define MyAppName "Firm RMS"
-#define MyAppVersion "1.0.0"
+; Single source of truth for the version number — the same ..\VERSION file
+; app/core/version.py reads at runtime (bundled into the exe by
+; firm_rms.spec), so "check for updates" compares against the exact
+; version this installer was built from. Bump that one file, not this one.
+#define VersionFileHandle FileOpen("..\VERSION")
+#define MyAppVersion Trim(FileRead(VersionFileHandle))
+#expr FileClose(VersionFileHandle)
 #define MyAppPublisher "Firm RMS"
 #define MyAppExeName "firm-rms.exe"
 

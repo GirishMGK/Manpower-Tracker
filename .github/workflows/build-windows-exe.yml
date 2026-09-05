@@ -20,6 +20,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify VERSION matches the pushed tag
+        # "Check for updates" (app/api/v1/updates.py) compares the running
+        # exe's bundled VERSION file against the latest GitHub Release tag —
+        # if a release ever ships with a VERSION that doesn't match its own
+        # tag, every older exe would either nag forever or never notice an
+        # update. Catch that here instead of after it ships.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $fileVersion = (Get-Content VERSION -Raw).Trim()
+          if ($tagVersion -ne $fileVersion) {
+            Write-Error "Tag ${{ github.ref_name }} does not match VERSION file ('$fileVersion') — bump VERSION and commit before tagging."
+            exit 1
+          }
+          Write-Host "VERSION file ($fileVersion) matches tag ${{ github.ref_name }}"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -72,6 +88,14 @@ jobs:
             exit 1
           }
           Write-Host "firm-rms.exe started and responded to /health OK"
+
+          $fileVersion = (Get-Content VERSION -Raw).Trim()
+          $healthVersion = $resp.Content | ConvertFrom-Json | Select-Object -ExpandProperty version
+          if ($healthVersion -ne $fileVersion) {
+            Write-Error "/health reported version '$healthVersion' but VERSION file says '$fileVersion' — the bundled VERSION data file didn't make it into the exe."
+            exit 1
+          }
+          Write-Host "/health correctly reports version $healthVersion"
 
       - name: Build installer (Inno Setup)
         run: iscc desktop\installer.iss

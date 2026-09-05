@@ -26,6 +26,13 @@ datas = []
 if frontend_dist.is_dir():
     datas.append((str(frontend_dist), "frontend_dist"))
 
+# The single-source-of-truth version string — see app/core/version.py and
+# desktop/installer.iss, which both read the same file. Bundled at the
+# bundle root so sys._MEIPASS/VERSION resolves it when frozen.
+version_file = repo_root / "VERSION"
+if version_file.is_file():
+    datas.append((str(version_file), "."))
+
 # Third-party dependencies that resolve backends/plugins via importlib
 # rather than a plain top-level import, so PyInstaller's static analysis
 # can't discover them on its own.

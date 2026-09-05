@@ -27,6 +27,11 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # "Check for updates" (desktop app) reads this repo's GitHub Releases —
+    # see app/api/v1/updates.py. A fork that re-brands the app can point
+    # this at its own repo via RMS_UPDATE_CHECK_REPO.
+    update_check_repo: str = "GirishMGK/Manpower-Tracker"
+
     # When set, app.main serves the built SPA (frontend/dist by default) from
     # this directory as a single process — used by the PyInstaller desktop
     # build (see desktop/launcher.py). Unset in normal dev/docker deployments,

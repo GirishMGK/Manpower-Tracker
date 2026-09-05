@@ -98,6 +98,27 @@ To build the installer yourself instead of via Actions, see the build
 commands at the top of `desktop/firm_rms.spec` (PyInstaller) and
 `desktop/installer.iss` (Inno Setup) — both require Windows.
 
+**Checking for updates:** the "Check for updates" button on the dashboard
+(top right, next to your name) compares this install's version against
+this repo's latest GitHub Release and, if there's a newer one, shows a
+"Download the installer" link straight to that release's `.exe` — click
+it, run the downloaded installer the same way you ran the first one (it
+installs over the existing one and keeps your `%LOCALAPPDATA%\FirmRMS\`
+data untouched), then relaunch. There's no silent auto-update — nothing
+happens unless you click the button, and it needs an internet connection
+to check (a friendly message says so if it can't reach GitHub, rather
+than failing silently). `GET /api/v1/updates/check` does the actual work
+(`app/api/v1/updates.py`); `/health` also reports the running version if
+you ever need it from a script.
+
+**Cutting a release** (for whoever maintains this): bump the single
+`VERSION` file at the repo root, commit it, then push a matching tag —
+`git tag v1.1.0 && git push origin v1.1.0`. The build workflow refuses to
+run if the tag doesn't match `VERSION`, so the two can't drift apart and
+leave the update-check comparing against the wrong number. Both
+`desktop/installer.iss` and `app/core/version.py` read that same file, so
+there is exactly one number to bump.
+
 ## Logging in
 
 Default admin (created by `startup_seed`): `admin@firm.local` /
