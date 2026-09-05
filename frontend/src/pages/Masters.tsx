@@ -8,6 +8,7 @@ import {
   type ClientRow,
   type ImportSummary,
   type StaffRow,
+  addClientEngagement,
   commitClientsImport,
   commitStaffImport,
   createClient,
@@ -16,6 +17,7 @@ import {
   downloadClientsTemplate,
   downloadStaffErrorWorkbook,
   downloadStaffTemplate,
+  fetchClientEngagements,
   fetchClientsList,
   fetchStaffList,
   markStaffExited,
@@ -520,6 +522,7 @@ function ClientsPanel() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [engagementsFor, setEngagementsFor] = useState<ClientRow | null>(null);
   const listQuery = useQuery({ queryKey: ["masters-clients", q], queryFn: () => fetchClientsList(q) });
   const partnersQuery = useQuery({
     queryKey: ["partners-lookup"],
@@ -556,7 +559,16 @@ function ClientsPanel() {
           />
         )}
 
-        <ClientsTable rows={listQuery.data ?? []} loading={listQuery.isLoading} partnerNameById={partnerNameById} />
+        {engagementsFor && (
+          <ClientEngagementsPanel client={engagementsFor} onClose={() => setEngagementsFor(null)} />
+        )}
+
+        <ClientsTable
+          rows={listQuery.data ?? []}
+          loading={listQuery.isLoading}
+          partnerNameById={partnerNameById}
+          onManageEngagements={setEngagementsFor}
+        />
       </Card>
 
       <ImportPanel
@@ -578,10 +590,12 @@ function ClientsTable({
   rows,
   loading,
   partnerNameById,
+  onManageEngagements,
 }: {
   rows: ClientRow[];
   loading: boolean;
   partnerNameById: Map<string, string>;
+  onManageEngagements: (client: ClientRow) => void;
 }) {
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (rows.length === 0) return <p className="text-sm text-slate-500">No clients yet — add one above or import a spreadsheet.</p>;
@@ -594,12 +608,13 @@ function ClientsTable({
             <th className="px-3 py-2">Name</th>
             <th className="px-3 py-2">Entity type</th>
             <th className="px-3 py-2">Nature</th>
-            <th className="px-3 py-2">Engagement</th>
+            <th className="px-3 py-2">Primary engagement</th>
             <th className="px-3 py-2">Status</th>
             <th className="px-3 py-2">Partner</th>
             <th className="px-3 py-2">Priority</th>
             <th className="px-3 py-2">MNC</th>
             <th className="px-3 py-2">Firm</th>
+            <th className="px-3 py-2"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -615,10 +630,84 @@ function ClientsTable({
               <td className="px-3 py-1.5">{labelize(r.priority)}</td>
               <td className="px-3 py-1.5">{r.is_mnc ? "Yes" : "No"}</td>
               <td className="px-3 py-1.5">{r.practicing_firm ?? "—"}</td>
+              <td className="px-3 py-1.5">
+                <button
+                  onClick={() => onManageEngagements(r)}
+                  className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                >
+                  Engagements
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ClientEngagementsPanel({ client, onClose }: { client: ClientRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const queryKey = ["client-engagements", client.id];
+  const engagementsQuery = useQuery({ queryKey, queryFn: () => fetchClientEngagements(client.id) });
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const existingTypes = new Set((engagementsQuery.data ?? []).map((e) => e.service_type));
+
+  async function handleAdd(serviceType: string) {
+    setAdding(serviceType);
+    setError(null);
+    try {
+      await addClientEngagement(client.id, client.client_code, serviceType);
+      qc.invalidateQueries({ queryKey });
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? "Could not add that engagement — try again.");
+    } finally {
+      setAdding(null);
+    }
+  }
+
+  return (
+    <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-800">
+          Engagements for {client.name} <span className="font-mono text-xs text-slate-500">({client.client_code})</span>
+        </h3>
+        <button onClick={onClose} className="text-xs text-slate-500 hover:text-slate-800">Close</button>
+      </div>
+      <p className="mb-3 text-xs text-slate-600">
+        This client's "Type of engagement" field is just its primary service. A client getting several services (LR,
+        Statutory audit, Tax audit, Consultancy, ...) needs one of these per service instead — check each one that
+        applies. Already-added ones are ticked and can't be removed here (an engagement may already have bookings or
+        timesheets against it by the time you'd want to take it away).
+      </p>
+      {engagementsQuery.isLoading ? (
+        <p className="text-sm text-slate-500">Loading…</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+          {ENGAGEMENT_TYPES.map((o) => {
+            const checked = existingTypes.has(o.value);
+            return (
+              <label
+                key={o.value}
+                className={`flex items-center gap-2 rounded border px-2 py-1.5 text-sm ${checked ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-white text-slate-700"}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={checked || adding !== null}
+                  onChange={() => handleAdd(o.value)}
+                />
+                {o.label}
+                {adding === o.value && "…"}
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>
   );
 }

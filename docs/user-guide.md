@@ -147,6 +147,25 @@ new columns like these automatically on next start via a small self-heal
 in `app.db.session.init_db()`, since `create_all()` alone never alters an
 already-existing table.
 
+**A client with several services at once** (e.g. Limited review +
+Statutory audit + Tax audit + Consultancy) isn't a case for the Add-client
+form's "Type of engagement" field — that field is `primary_service_type`,
+a single summary value. Each real service a client receives is its own
+`Engagement` record instead (the entity bookings, timesheets and billing
+actually attach to), and a client can have any number of them. An
+"Engagements" button on each row of the clients table opens a checklist of
+the same service-type vocabulary as "Type of engagement"; ticking one
+creates the `Engagement` — auto-resolving/creating its Department (Audit,
+Tax, Indirect Tax, Advisory, ...) by service type, auto-generating an
+`engagement_code` (`{client_code}-{service abbreviation}-{financial
+year}`), and defaulting to the current Indian financial year (April–March).
+Already-added services show ticked and can't be unticked here, since a
+booking or timesheet may already exist against that engagement by the time
+you'd want to remove it. No backend changes were needed for this — it's a
+frontend screen (`ClientEngagementsPanel` in `frontend/src/pages/Masters.tsx`,
+resolvers in `frontend/src/lib/mastersApi.ts`) over the pre-existing
+`POST /api/v1/engagements` and `GET/POST /api/v1/departments` endpoints.
+
 **"Download staff/clients template (.xlsx)"** in each import panel is the
 easiest way to get a file in the right shape — it's generated on the fly
 (`GET /api/v1/admin/import/{staff|clients}/template`,

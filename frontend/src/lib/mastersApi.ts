@@ -142,6 +142,94 @@ export async function resolveGroupIdByName(name: string): Promise<string | null>
   return created.id;
 }
 
+// ---- per-client engagements ---------------------------------------
+// The client master's "Type of engagement" field is a single value — the
+// client's *primary* service. A client actually receiving several
+// services (say, Limited Review + Statutory audit + Tax audit +
+// Consultancy) needs one Engagement record per service instead — that's
+// the entity the scheduler board, timesheets and billing actually attach
+// to, and a client can have any number of them. This is a thin client
+// for the existing /engagements endpoints (no backend changes needed —
+// POST /engagements already accepts everything required); it exists so
+// there's a screen to use them from at all.
+
+export type EngagementRow = {
+  id: string;
+  engagement_code: string;
+  service_type: string;
+  financial_year: string;
+  status: string;
+};
+
+export async function fetchClientEngagements(clientId: string): Promise<EngagementRow[]> {
+  const { data } = await api.get<EngagementRow[]>("/engagements", { params: { client_id: clientId, limit: 200 } });
+  return data;
+}
+
+type Department = { id: string; code: string; name: string };
+
+// Which department a service type falls under — auto-resolved (and
+// created on first use, like Office/Staff/ClientGroup) so the admin
+// never has to separately set up departments just to add an engagement.
+const SERVICE_DEPARTMENT: Record<string, string> = {
+  STATUTORY_AUDIT: "Audit",
+  LIMITED_REVIEW: "Audit",
+  INTERNAL_AUDIT: "Internal Audit",
+  TAX_AUDIT: "Tax",
+  GST_AUDIT: "Indirect Tax",
+  ITR: "Tax",
+  TAX_WORKS: "Tax",
+  CONSULTANCY: "Advisory",
+  OPINION: "Advisory",
+  OTHER: "General",
+};
+
+const SERVICE_ABBR: Record<string, string> = {
+  STATUTORY_AUDIT: "STAT",
+  LIMITED_REVIEW: "LR",
+  INTERNAL_AUDIT: "IA",
+  TAX_AUDIT: "TAXAUD",
+  GST_AUDIT: "GST",
+  ITR: "ITR",
+  TAX_WORKS: "TAXWORK",
+  CONSULTANCY: "CONS",
+  OPINION: "OPN",
+  OTHER: "OTH",
+};
+
+async function resolveDepartmentIdByName(name: string): Promise<string> {
+  const { data: departments } = await api.get<Department[]>("/departments");
+  const existing = departments.find((d) => d.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const { data: created } = await api.post<Department>("/departments", {
+    code: name.replace(/[^A-Za-z]/g, "").slice(0, 4).toUpperCase() || "GEN",
+    name,
+  });
+  return created.id;
+}
+
+/** India's April-March financial year, as the "FY2025-26" style string
+ * used throughout this codebase (see seed/seed_data.py's FY_LIST). */
+export function currentFinancialYear(): string {
+  const now = new Date();
+  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; // month 3 = April
+  return `FY${year}-${String((year + 1) % 100).padStart(2, "0")}`;
+}
+
+export async function addClientEngagement(clientId: string, clientCode: string, serviceType: string): Promise<EngagementRow> {
+  const departmentId = await resolveDepartmentIdByName(SERVICE_DEPARTMENT[serviceType] ?? "General");
+  const fy = currentFinancialYear();
+  const engagementCode = `${clientCode}-${SERVICE_ABBR[serviceType] ?? serviceType.slice(0, 6)}-${fy}`;
+  const { data } = await api.post<EngagementRow>("/engagements", {
+    engagement_code: engagementCode,
+    client_id: clientId,
+    department_id: departmentId,
+    service_type: serviceType,
+    financial_year: fy,
+  });
+  return data;
+}
+
 // ---- bulk import ---------------------------------------------------
 
 async function postImportFile(path: string, file: File, commitValidOnly?: boolean): Promise<ImportSummary> {
