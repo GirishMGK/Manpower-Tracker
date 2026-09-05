@@ -15,11 +15,12 @@ silently, so you'll know if you're about to double-seed.
 import random
 from datetime import date, timedelta
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.security import hash_password
 from app.db.session import engine, init_db
 from app.models.allocation import Allocation, HolidayCalendar, NonAvailability
+from app.services.capacity_materializer import recompute_range
 from app.models.client import Client, ClientGroup
 from app.models.engagement import Engagement
 from app.models.enums import (
@@ -96,7 +97,15 @@ def _random_name() -> tuple[str, str]:
     return random.choice(FIRST_NAMES), random.choice(LAST_NAMES)
 
 
-def seed(session: Session) -> None:
+def seed(session: Session, *, capacity_window: tuple[date, date] | None = None) -> None:
+    """`capacity_window`, if given, materialises capacity_daily (§5) for that
+    date range after seeding — see the note near the bottom of this function.
+    Left `None` by default because it's expensive (a couple of seconds per
+    90-day window x 300 staff) and most callers of `seed()` (tests checking
+    row counts, import behaviour, etc.) don't touch capacity_daily at all;
+    the CLI entrypoint below passes a window so a freshly-seeded dev
+    instance has real utilisation/bench data to look at immediately.
+    """
     offices = []
     for code, name, city, state, is_ho in OFFICES:
         o = Office(code=code, name=name, city=city, state=state, is_head_office=is_ho)
@@ -245,6 +254,13 @@ def seed(session: Session) -> None:
         dept = departments[i % len(departments)]
         fy = FY_LIST[i % 2]
         ep = partners[i % len(partners)]
+        fy_start = date(2026, 4, 1) if fy == "FY2025-26" else date(2027, 4, 1)
+        # Stagger start dates across the year and vary duration so allocations
+        # don't all pile onto one identical 6-month window (that produced an
+        # unrealistically dense, all-staff-double-booked board when every
+        # engagement shared the same planned_start/planned_end).
+        p_start = fy_start + timedelta(days=(i * 11) % 300)
+        p_end = p_start + timedelta(days=random.randrange(30, 120))
         e = Engagement(
             engagement_code=f"{dept.code}/{client.client_code}/{fy.replace('FY', '')}-{i+1:04d}",
             client_id=client.id,
@@ -260,8 +276,8 @@ def seed(session: Session) -> None:
             budget_hours_total=float(random.randrange(80, 1200)),
             reporting_deadline=(date(2026, 9, 30) if fy == "FY2025-26" else date(2027, 9, 30)).isoformat(),
             status=random.choice(list(EngagementStatus)),
-            planned_start=date(2026, 4, 1).isoformat(),
-            planned_end=date(2026, 9, 30).isoformat(),
+            planned_start=p_start.isoformat(),
+            planned_end=p_end.isoformat(),
         )
         session.add(e)
         engagements.append(e)
@@ -315,8 +331,24 @@ def seed(session: Session) -> None:
         (f"{qualified_and_articles[0].employee_code.lower()}@firm.local", UserRole.MANAGER, qualified_and_articles[0].id),
     ]
     for email, role, staff_id in demo_users:
+        # Skip rather than collide if app/jobs/startup_seed.py already created admin@firm.local
+        # (or this script is re-run) — see the module docstring's "idempotent-ish" note.
+        if session.exec(select(User).where(User.email == email)).first():
+            continue
         session.add(User(email=email, hashed_password=hash_password("Demo@2026"), role=role, full_name=email.split("@")[0], staff_id=staff_id))
     session.commit()
+
+    # --- capacity_daily (§5), only if the caller asked for it ---
+    # Normal API traffic keeps this materialised via the synchronous
+    # invalidation hook on every allocation/leave mutation (see
+    # app/api/v1/allocations.py, non_availability.py) plus the nightly job —
+    # neither of those fire for allocations inserted directly via
+    # session.add() like this script does, so RP-03/RP-06 and anything else
+    # reading capacity_daily would see an empty table without an explicit
+    # build for at least the window the caller cares about.
+    if capacity_window:
+        rows_written = recompute_range(session, capacity_window[0], capacity_window[1])
+        print(f"Materialised capacity_daily: {rows_written} rows.")
 
     print(f"Seeded: {len(offices)} offices, {len(departments)} departments, {len(staff_rows)} staff "
           f"({len(partners)} partners, {n_articles} articles), {len(groups)} groups, {len(clients)} clients, "
@@ -326,4 +358,11 @@ def seed(session: Session) -> None:
 if __name__ == "__main__":
     init_db()
     with Session(engine) as s:
-        seed(s)
+        # A 6-month window around "today" is enough for the scheduler's
+        # 8-week default view, the dashboards' 90-day default filter, and
+        # RP-03/RP-06 to all show real numbers immediately after seeding,
+        # without paying for materialising both full FYs (~240k rows,
+        # over a minute) on every fresh seed.
+        today = date.today()
+        s_window = (today - timedelta(days=120), today + timedelta(days=60))
+        seed(s, capacity_window=s_window)

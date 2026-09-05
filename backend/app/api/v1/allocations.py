@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
@@ -18,12 +18,45 @@ from app.schemas.allocation import (
     AllocationValidateResponse,
     RuleViolationOut,
 )
+from app.models.client import Client
+from app.models.engagement import Engagement
+from app.models.staff import Staff
+from app.services.capacity_materializer import recompute_range
 from app.services.conflict_engine import AllocationCandidate, has_blocking, validate_allocation
+from app.services.notifications import notify_allocation_cancelled, notify_allocation_confirmed
 
 router = APIRouter()
 
 APPROVER_ROLES = (UserRole.ADMIN, UserRole.RESOURCE_MANAGER, UserRole.PARTNER)
 WRITE_ROLES = (UserRole.ADMIN, UserRole.RESOURCE_MANAGER, UserRole.PARTNER, UserRole.MANAGER)
+
+
+def _invalidate_capacity(db: Session, staff_id: uuid.UUID, *date_strs: str) -> None:
+    """§5: recompute capacity_daily synchronously for every allocation mutation.
+
+    Spans the union of all given dates (old + new, on a move) padded by a
+    day so a booking that moved off a date still clears that date's cache.
+    """
+    dates = [datetime.strptime(d, "%Y-%m-%d").date() for d in date_strs if d]
+    if not dates:
+        return
+    recompute_range(db, min(dates) - timedelta(days=1), max(dates) + timedelta(days=1), staff_ids=[staff_id])
+
+
+def _notify(db: Session, row: Allocation, *, cancelled: bool, reason: str | None = None) -> None:
+    """§9: best-effort email on allocation confirm/cancel. Never raises — a
+    down/unconfigured mail server must never affect the booking itself."""
+    staff = db.get(Staff, row.staff_id)
+    engagement = db.get(Engagement, row.engagement_id)
+    client = db.get(Client, engagement.client_id) if engagement else None
+    if staff is None or engagement is None:
+        return
+    to_email = staff.official_email or staff.personal_email
+    args = (to_email, staff.full_name, engagement.engagement_code, client.name if client else "", row.date_from, row.date_to)
+    if cancelled:
+        notify_allocation_cancelled(*args, reason=reason)
+    else:
+        notify_allocation_confirmed(*args)
 
 
 def _candidate_from(payload, exclude_id: uuid.UUID | None = None) -> AllocationCandidate:
@@ -36,6 +69,8 @@ def _candidate_from(payload, exclude_id: uuid.UUID | None = None) -> AllocationC
         allocation_pct=payload.allocation_pct,
         status=payload.status,
         exclude_allocation_id=exclude_id,
+        office_id=getattr(payload, "office_id", None),
+        work_location=getattr(payload, "work_location", None),
     )
 
 
@@ -138,6 +173,7 @@ def create_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
     return row
 
 
@@ -164,6 +200,8 @@ def update_allocation(
         allocation_pct=updates.get("allocation_pct", row.allocation_pct),
         status=updates.get("status", row.status),
         exclude_allocation_id=row.id,
+        office_id=updates.get("office_id", row.office_id),
+        work_location=updates.get("work_location", row.work_location),
     )
     violations = validate_allocation(db, cand)
     recorded_overrides = _apply_overrides_or_raise(violations, payload.overrides, user.role)
@@ -184,6 +222,7 @@ def update_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, before.date_from, before.date_to, row.date_from, row.date_to)
     return row
 
 
@@ -210,6 +249,8 @@ def approve_allocation(
     )
     db.commit()
     db.refresh(row)
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
+    _notify(db, row, cancelled=False)
     return row
 
 
@@ -238,4 +279,6 @@ def cancel_allocation(
         before=before, after=row, ip=get_client_ip(request), user_agent=request.headers.get("user-agent"),
     )
     db.commit()
+    _invalidate_capacity(db, row.staff_id, row.date_from, row.date_to)
+    _notify(db, row, cancelled=True, reason=reason)
     return {"status": "cancelled", "id": str(allocation_id)}

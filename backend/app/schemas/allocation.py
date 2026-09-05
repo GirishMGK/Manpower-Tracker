@@ -14,6 +14,8 @@ class AllocationValidateRequest(BaseModel):
     allocation_pct: float = 100
     status: AllocationStatus = AllocationStatus.CONFIRMED
     exclude_allocation_id: uuid.UUID | None = None
+    office_id: uuid.UUID | None = None  # feeds R16/R17 (outstation / location-mismatch)
+    work_location: WorkLocation | None = None
 
 
 class RuleViolationOut(BaseModel):

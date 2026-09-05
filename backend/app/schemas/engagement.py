@@ -69,3 +69,16 @@ class EngagementRead(EngagementBase):
             data["out_of_pocket_budget"] = None
             data["billing_milestones"] = None
         return cls(**data)
+
+
+class EngagementRollForwardRequest(BaseModel):
+    new_engagement_code: str
+    new_financial_year: str | None = None
+    date_shift_years: int = 1
+    copy_team: bool = True
+
+
+class EngagementRollForwardResponse(BaseModel):
+    new_engagement: EngagementRead
+    copied: list[dict]
+    skipped: list[dict]

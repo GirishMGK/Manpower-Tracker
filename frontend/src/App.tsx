@@ -1,7 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
+import Dashboards from "@/pages/Dashboards";
 import Login from "@/pages/Login";
+import ManpowerAllocation from "@/pages/ManpowerAllocation";
+import Masters from "@/pages/Masters";
+import Me from "@/pages/Me";
+import Reports from "@/pages/Reports";
+import Scheduler from "@/pages/Scheduler";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -18,6 +24,54 @@ export default function App() {
         element={
           <RequireAuth>
             <Dashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/masters"
+        element={
+          <RequireAuth>
+            <Masters />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/allocation-board"
+        element={
+          <RequireAuth>
+            <ManpowerAllocation />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/schedule"
+        element={
+          <RequireAuth>
+            <Scheduler />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/dashboards"
+        element={
+          <RequireAuth>
+            <Dashboards />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <RequireAuth>
+            <Reports />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/me"
+        element={
+          <RequireAuth>
+            <Me />
           </RequireAuth>
         }
       />

@@ -18,19 +18,39 @@ any implementation notes that go beyond what the spec states verbatim.
 | R8 `EP_ROTATION_DUE` | WARN / BLOCK if PIE | `check_ep_rotation` | BLOCK (non-overridable) when `client.is_pie`; WARN (overridable by PARTNER) otherwise. |
 | R9 `NO_QUALIFIED_SUPERVISOR` | BLOCK | `check_no_qualified_supervisor` | "Qualified supervisor" = any staff with `grade_rank <= grade_rank(ASSISTANT_MANAGER)` booked on the same engagement for overlapping dates. |
 
-## Not yet implemented (Phase P8)
+## Implemented (Phase P8)
 
-R10 `EQCR_MISSING` (WARN), R11 `SKILL_GAP` (WARN), R12 `GRADE_MIX_BREACH`
-(WARN), R13 `ICAI_TRAINING_LIMIT` (WARN), R14 `ARTICLE_HOURS_BREACH` (WARN),
-R15 `SUSTAINED_OVERLOAD` (WARN), R16 `OUTSTATION_BREACH` (WARN), R17
-`LOCATION_MISMATCH` (INFO), R18 `BUDGET_OVERRUN` (WARN), R19
-`DEADLINE_RISK` (WARN), R20 `NO_EXPOSURE_DIVERSITY` (INFO), R21
-`EXITING_STAFF` (WARN), R22 `UNAPPROVED_PIPELINE` (INFO), R23
-`DUPLICATE_ROLE` (BLOCK), R24 `COOLING_OFF` (WARN).
+| Code | Severity | Function | Notes |
+|---|---|---|---|
+| R10 `EQCR_MISSING` | WARN | `check_eqcr_missing` | `engagement.eqcr_required` set but `eqcr_partner_id` still null; clears once any EQCR allocation is booked. |
+| R11 `SKILL_GAP` | WARN | `check_skill_gap` | Compares `engagement.requires_specialist_skills` (skill codes) against the staff member's `staff_skills` rows. |
+| R12 `GRADE_MIX_BREACH` | WARN | `check_grade_mix_breach` | Article:qualified ratio on the engagement vs. `app_config.max_article_ratio`; a zero qualified-staff count always violates. |
+| R13 `ICAI_TRAINING_LIMIT` | WARN | `check_icai_training_limit` | Approximated via `SECONDMENT`-type `non_availability` rows (no dedicated secondment table) — see docs/decisions.md. Checks both the aggregate-months cap and the per-principal cap. |
+| R14 `ARTICLE_HOURS_BREACH` | WARN | `check_article_hours_breach` | 35-hr/week article norm (§5); sums the candidate + overlapping bookings per ISO week. |
+| R15 `SUSTAINED_OVERLOAD` | WARN | `check_sustained_overload` | >=90% allocated for `app_config.burnout_weeks` consecutive weeks — the same threshold the P10 burnout watchlist will read. |
+| R16 `OUTSTATION_BREACH` | WARN | `check_outstation_breach` | Per-calendar-month outstation days vs. `staff.max_outstation_days_per_month`; only counts days where the booking office differs from `base_office_id`. |
+| R17 `LOCATION_MISMATCH` | INFO | `check_location_mismatch` | Booking office != staff's base office. |
+| R18 `BUDGET_OVERRUN` | WARN | `check_budget_overrun` | Projected staff-cost / fee ratio for the whole engagement team vs. `app_config.max_cost_ratio`; hours estimated at 8 hrs/business-day. |
+| R19 `DEADLINE_RISK` | WARN | `check_deadline_risk` | Booking's `date_to` falls after `reporting_deadline`/`statutory_due_date`. |
+| R20 `NO_EXPOSURE_DIVERSITY` | INFO | `check_no_exposure_diversity` | Article's cumulative days on one client vs. `app_config.max_days_single_client`. |
+| R21 `EXITING_STAFF` | WARN | `check_exiting_staff` | Booking starts within the final 20% of notice period — approximated against a standard 30-day notice length since the schema has no `notice_start` field (see docs/decisions.md). |
+| R22 `UNAPPROVED_PIPELINE` | INFO | `check_unapproved_pipeline` | Engagement still `PIPELINE` or client `acceptance_status != ACCEPTED`. |
+| R23 `DUPLICATE_ROLE` | BLOCK | `check_duplicate_role` | Signing partner / EP / EQCR / engagement manager can only have one active holder per engagement at a time. |
+| R24 `COOLING_OFF` | WARN | `check_cooling_off` | Presence-based on `independence_declarations.held_employment_last_2yrs` (boolean, not a date) — see docs/decisions.md. |
 
-`resource_requests`, `independence_declarations` write flow (only the read
-side exists so far, via seed/direct writes), and the approval workflow in
-§9.1/§9.4 also land in P8.
+All fourteen are unit-tested in `tests/test_conflict_engine.py` (both as
+standalone `check_*` calls and, for R10/R17, wired through
+`validate_allocation`).
+
+`resource_requests` and `independence_declarations` write/approval flow
+(§9.1/§9.4) — only the read side existed before P8 — lands as a separate
+P8 task; see the phase table in the root README.
+
+## Implemented (post-P11, Manpower Allocation tab)
+
+| Code | Severity | Function | Notes |
+|---|---|---|---|
+| R25 `CONCURRENT_CLIENT_CAP` | BLOCK | `check_concurrent_client_cap` | Not in the original §4 rule set — added for the Manpower Allocation tab's own caps (3 concurrent clients for an article, 4 for any other non-partner staff; partners exempt). Counts distinct `client_id`s across the staff member's other CONFIRMED/IN_PROGRESS, date-overlapping allocations, so a client's several services (see the per-client Engagements feature) count once, not per-engagement. Thresholds live in `app_config` (`max_concurrent_clients_article` / `max_concurrent_clients_ca`), not overridable. |
 
 ## Enforcement mechanics
 

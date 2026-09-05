@@ -10,6 +10,19 @@ def test_login_success_and_me(client, session):
     assert resp.json()["role"] == "ADMIN"
 
 
+def test_login_accepts_internal_local_domain(client, session):
+    """Regression: pydantic's EmailStr rejects .local/.test/.internal as
+    "special-use or reserved" TLDs by default — exactly what an on-premise
+    firm's internal mail domain looks like (§0.4). Login only needs
+    syntactic validity, not deliverability. Found via manual UI testing
+    against seed.seed_data's @firm.local demo accounts.
+    """
+    make_user(session, UserRole.ADMIN, email="admin@firm.local")
+    headers = auth_headers(client, "admin@firm.local")
+    resp = client.get("/api/v1/auth/me", headers=headers)
+    assert resp.status_code == 200
+
+
 def test_login_wrong_password(client, session):
     make_user(session, UserRole.ADMIN, email="admin2@x.com")
     resp = client.post("/api/v1/auth/login", json={"email": "admin2@x.com", "password": "wrong"})
