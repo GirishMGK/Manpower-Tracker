@@ -46,6 +46,12 @@ standalone `check_*` calls and, for R10/R17, wired through
 (§9.1/§9.4) — only the read side existed before P8 — lands as a separate
 P8 task; see the phase table in the root README.
 
+## Implemented (post-P11, Manpower Allocation tab)
+
+| Code | Severity | Function | Notes |
+|---|---|---|---|
+| R25 `CONCURRENT_CLIENT_CAP` | BLOCK | `check_concurrent_client_cap` | Not in the original §4 rule set — added for the Manpower Allocation tab's own caps (3 concurrent clients for an article, 4 for any other non-partner staff; partners exempt). Counts distinct `client_id`s across the staff member's other CONFIRMED/IN_PROGRESS, date-overlapping allocations, so a client's several services (see the per-client Engagements feature) count once, not per-engagement. Thresholds live in `app_config` (`max_concurrent_clients_article` / `max_concurrent_clients_ca`), not overridable. |
+
 ## Enforcement mechanics
 
 - `validate_allocation(db, candidate)` runs every implemented rule and

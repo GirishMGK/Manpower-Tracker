@@ -264,6 +264,45 @@ shift it a week, "Today" resets it.
 - **Zoom**: Day/Week toggle in the toolbar; Week fits the whole 8-week
   window without horizontal scrolling.
 
+## Manpower Allocation tab
+
+`/allocation-board` (from the dashboard's "Manpower allocation" tile) is a
+second, simpler way to create the same `Allocation` rows the scheduler
+board does — built for staffing a job off a booking already received or
+off an oral discussion, rather than dragging bars on a calendar. Every
+staff member except partners appears as a roster row (search by name/code,
+filter to Articles-only or non-article staff); each row lists its current
+bookings as removable chips — client, date range, an "oral" badge when the
+booking is tentative — and a "+ Add booking" form: client + assignment
+(service type) picked from the masters, date range, basis (**Booking
+received** → `booking_type=HARD`, **Oral discussion** → `SOFT`), partner
+(required select — every booking made here must name the partner
+responsible) and manager (optional select), and a remarks field
+(`allocations.notes`).
+
+The client + assignment dropdown resolves to an `Engagement` the same way
+the per-client Engagements checklist does (reusing an existing one for
+that client/service if there is one, creating it against the current
+financial year otherwise) — so this tab and the Masters page's Engagements
+panel never create duplicate engagements for the same client/service.
+
+**Concurrent-client cap (R25 `CONCURRENT_CLIENT_CAP`)**: an article can be
+on at most 3 clients at once, any other non-partner staff member at most
+4 (partners are exempt) — counting distinct clients with overlapping
+dates, not distinct engagements, so a client's several services (see
+"Multiple services per client" below) still count as one. The "+ Add
+booking" button disables itself once a row is at its cap; the same rule
+also runs server-side in `validate_allocation()`, so it can't be bypassed
+by calling the API directly — it applies to the scheduler board's bookings
+too. The two caps are tunable via `app_config`
+(`max_concurrent_clients_article` / `max_concurrent_clients_ca`), same as
+every other rule threshold (see `docs/business-rules.md`).
+
+The right-hand **client-wise summary** panel rolls up every active
+booking by client: how many staff are on it, total calendar days across
+their date ranges, and total hours assuming an 8-hour day
+(`hours = days × 8`).
+
 ## Independence declarations (§3.12, §4, §9.4)
 
 `/api/v1/independence-declarations` — Admin/RM/Partner/Manager/HR can
