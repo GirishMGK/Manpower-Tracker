@@ -17,6 +17,12 @@ export default function Dashboard() {
           Manage staff &amp; clients →
         </Link>
         <Link
+          to="/allocation-board"
+          className="inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+        >
+          Manpower allocation →
+        </Link>
+        <Link
           to="/schedule"
           className="inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
         >

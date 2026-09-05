@@ -3,6 +3,7 @@ import { useAuthStore } from "@/lib/authStore";
 import Dashboard from "@/pages/Dashboard";
 import Dashboards from "@/pages/Dashboards";
 import Login from "@/pages/Login";
+import ManpowerAllocation from "@/pages/ManpowerAllocation";
 import Masters from "@/pages/Masters";
 import Me from "@/pages/Me";
 import Reports from "@/pages/Reports";
@@ -31,6 +32,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Masters />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/allocation-board"
+        element={
+          <RequireAuth>
+            <ManpowerAllocation />
           </RequireAuth>
         }
       />

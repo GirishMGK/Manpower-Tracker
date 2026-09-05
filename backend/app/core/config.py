@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     default_max_days_single_client: int = 120
     default_article_secondment_cap: int = 2
     default_article_secondment_months_cap: int = 12
+    # R25 CONCURRENT_CLIENT_CAP (Manpower Allocation tab): how many distinct
+    # clients one staff member may be concurrently booked to at the same time.
+    default_max_concurrent_clients_article: int = 3
+    default_max_concurrent_clients_ca: int = 4
 
 
 @lru_cache

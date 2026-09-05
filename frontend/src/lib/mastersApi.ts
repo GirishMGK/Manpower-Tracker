@@ -37,6 +37,48 @@ export type ClientRow = {
   is_active: boolean;
 };
 
+// ---- shared firm vocabulary -----------------------------------------
+// The Masters page and the Manpower Allocation tab both need the same
+// fixed dropdown lists (designations, work locations, engagement/service
+// types, partner names) — kept in one place so the two screens can never
+// drift apart. Mirrors the backend's app.importers.friendly_values.
+
+export const DESIGNATIONS: { label: string; designation: string; staffCategory: string; gradeRank: number }[] = [
+  { label: "Partner", designation: "PARTNER", staffCategory: "PARTNER", gradeRank: 2 },
+  { label: "Senior Manager", designation: "SENIOR_MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 4 },
+  { label: "Manager", designation: "MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 5 },
+  { label: "Executive", designation: "EXECUTIVE", staffCategory: "EMPLOYEE_OTHER_PROF", gradeRank: 9 },
+  { label: "Article", designation: "ARTICLE_Y1", staffCategory: "ARTICLED_ASSISTANT", gradeRank: 12 },
+];
+
+export const WORK_LOCATIONS = ["Hyderabad", "Bangalore", "Mumbai", "Chennai", "Delhi"];
+
+export const ENGAGEMENT_TYPES: { label: string; value: string }[] = [
+  { label: "Statutory audit", value: "STATUTORY_AUDIT" },
+  { label: "Limited review", value: "LIMITED_REVIEW" },
+  { label: "Internal audit", value: "INTERNAL_AUDIT" },
+  { label: "Tax audit", value: "TAX_AUDIT" },
+  { label: "GST Audit", value: "GST_AUDIT" },
+  { label: "ITR", value: "ITR" },
+  { label: "Tax works", value: "TAX_WORKS" },
+  { label: "Consultancy", value: "CONSULTANCY" },
+  { label: "Opinion", value: "OPINION" },
+  { label: "Others", value: "OTHER" },
+];
+
+export const PARTNERS = [
+  "Srinivas Gogineni", "Hitesh Kumar P", "Ranganayakulu B", "Sudarshan Gupta MS",
+  "Bhargava Anumolu", "Chandrshekar B", "Krishnamohan Reddy JS",
+];
+
+export function labelize(value: string): string {
+  return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
+export function findLabel(options: { label: string; value: string }[], value: string): string {
+  return options.find((o) => o.value === value)?.label ?? labelize(value);
+}
+
 export type ImportSummary = {
   entity: string;
   total_rows: number;
@@ -228,6 +270,115 @@ export async function addClientEngagement(clientId: string, clientCode: string, 
     financial_year: fy,
   });
   return data;
+}
+
+// ---- Manpower Allocation tab ----------------------------------------
+// A simpler, roster-shaped screen over the same /allocations endpoint the
+// drag-drop scheduler uses: every non-partner staff member, the clients
+// they're currently booked to (from a confirmed booking or an oral
+// discussion), and a per-client rollup. The backend enforces the actual
+// caps (R25 CONCURRENT_CLIENT_CAP: 3 clients at once for an article, 4 for
+// any other non-partner staff) — this is just the screen to work from.
+
+export type EngagementLite = {
+  id: string;
+  engagement_code: string;
+  client_id: string;
+  service_type: string;
+  financial_year: string;
+};
+
+export async function fetchAllEngagements(): Promise<EngagementLite[]> {
+  const { data } = await api.get<EngagementLite[]>("/engagements", { params: { limit: 5000 } });
+  return data;
+}
+
+export type AllocationRow = {
+  id: string;
+  engagement_id: string;
+  staff_id: string;
+  role_on_engagement: string;
+  partner_id: string | null;
+  reporting_manager_id: string | null;
+  date_from: string;
+  date_to: string;
+  booking_type: string;
+  status: string;
+  notes: string | null;
+};
+
+export async function fetchAllocations(): Promise<AllocationRow[]> {
+  const { data } = await api.get<AllocationRow[]>("/allocations", { params: { limit: 5000 } });
+  return data;
+}
+
+/** Reuses an existing engagement for this client+service if the client
+ * already has one (regardless of financial year — a firm rarely runs two
+ * live tax-audit engagements for the same client at once), otherwise
+ * creates one, exactly like the per-client Engagements checklist. Keeps
+ * "Client X / Tax audit" always landing on the same Engagement row instead
+ * of spawning a duplicate every time it's picked from this tab. */
+export async function resolveEngagementForBooking(clientId: string, clientCode: string, serviceType: string): Promise<EngagementRow> {
+  const existing = await fetchClientEngagements(clientId);
+  const match = existing.find((e) => e.service_type === serviceType);
+  if (match) return match;
+  return addClientEngagement(clientId, clientCode, serviceType);
+}
+
+export type CreateBookingInput = {
+  staffId: string;
+  isArticle: boolean;
+  clientId: string;
+  clientCode: string;
+  serviceType: string;
+  dateFrom: string;
+  dateTo: string;
+  bookingType: "HARD" | "SOFT";
+  partnerId: string;
+  managerId?: string | null;
+  notes?: string;
+};
+
+/** Books one staff member onto one client for a date range — "based on
+ * bookings received" (bookingType HARD) or "based on oral discussion"
+ * (SOFT), per the Manpower Allocation tab's own vocabulary for
+ * `allocations.booking_type`. Runs through the same full conflict-engine
+ * validation as the scheduler board (R1-R25), so a BLOCK (over-cap,
+ * overlapping leave, ...) surfaces as a 422 the caller should show via
+ * `describeBookingError`. */
+export async function createBooking(input: CreateBookingInput): Promise<AllocationRow> {
+  const engagement = await resolveEngagementForBooking(input.clientId, input.clientCode, input.serviceType);
+  const { data } = await api.post<AllocationRow>("/allocations", {
+    engagement_id: engagement.id,
+    staff_id: input.staffId,
+    role_on_engagement: input.isArticle ? "ARTICLE" : "TEAM_MEMBER",
+    partner_id: input.partnerId,
+    reporting_manager_id: input.managerId || null,
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    allocation_pct: 100,
+    status: "CONFIRMED",
+    booking_type: input.bookingType,
+    notes: input.notes || null,
+  });
+  return data;
+}
+
+export async function cancelBooking(allocationId: string, reason?: string): Promise<void> {
+  await api.delete(`/allocations/${allocationId}`, { params: { reason: reason || "Removed from Manpower Allocation tab" } });
+}
+
+/** BLOCK violations arrive as a 422 with `detail: {message, violations}`
+ * rather than a plain string — pull out something readable for either shape. */
+export function describeBookingError(e: unknown): string {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const d = detail as { message?: string; violations?: { message: string }[] };
+    if (d.violations?.length) return d.violations.map((v) => v.message).join(" ");
+    if (d.message) return d.message;
+  }
+  return "Could not save that booking — try again.";
 }
 
 // ---- bulk import ---------------------------------------------------

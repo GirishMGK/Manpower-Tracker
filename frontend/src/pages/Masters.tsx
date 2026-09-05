@@ -8,6 +8,10 @@ import {
   type ClientRow,
   type ImportSummary,
   type StaffRow,
+  DESIGNATIONS,
+  ENGAGEMENT_TYPES,
+  PARTNERS,
+  WORK_LOCATIONS,
   addClientEngagement,
   commitClientsImport,
   commitStaffImport,
@@ -20,6 +24,8 @@ import {
   fetchClientEngagements,
   fetchClientsList,
   fetchStaffList,
+  findLabel,
+  labelize,
   markStaffExited,
   resolveGroupIdByName,
   resolveOfficeIdByCity,
@@ -32,21 +38,13 @@ import {
 // broader backend enums (app/models/enums.py) — the backend keeps its
 // full vocabulary (other tooling/reports rely on it), this page just
 // exposes the subset that matches how this firm actually works.
-
-const DESIGNATIONS: { label: string; designation: string; staffCategory: string; gradeRank: number }[] = [
-  { label: "Partner", designation: "PARTNER", staffCategory: "PARTNER", gradeRank: 2 },
-  { label: "Senior Manager", designation: "SENIOR_MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 4 },
-  { label: "Manager", designation: "MANAGER", staffCategory: "EMPLOYEE_CA", gradeRank: 5 },
-  { label: "Executive", designation: "EXECUTIVE", staffCategory: "EMPLOYEE_OTHER_PROF", gradeRank: 9 },
-  { label: "Article", designation: "ARTICLE_Y1", staffCategory: "ARTICLED_ASSISTANT", gradeRank: 12 },
-];
+// DESIGNATIONS/WORK_LOCATIONS/ENGAGEMENT_TYPES/PARTNERS live in
+// mastersApi.ts so the Manpower Allocation tab shares the exact same lists.
 
 const STAFF_STATUSES = [
   { label: "Active", value: "ACTIVE" },
   { label: "Left", value: "EXITED" },
 ];
-
-const WORK_LOCATIONS = ["Hyderabad", "Bangalore", "Mumbai", "Chennai", "Delhi"];
 
 const NATURE_OPTIONS: { label: string; value: string }[] = [
   { label: "Private", value: "PRIVATE" },
@@ -63,39 +61,13 @@ const NATURE_OPTIONS: { label: string; value: string }[] = [
   { label: "Others", value: "OTHERS" },
 ];
 
-const ENGAGEMENT_TYPES: { label: string; value: string }[] = [
-  { label: "Statutory audit", value: "STATUTORY_AUDIT" },
-  { label: "Limited review", value: "LIMITED_REVIEW" },
-  { label: "Internal audit", value: "INTERNAL_AUDIT" },
-  { label: "Tax audit", value: "TAX_AUDIT" },
-  { label: "GST Audit", value: "GST_AUDIT" },
-  { label: "ITR", value: "ITR" },
-  { label: "Tax works", value: "TAX_WORKS" },
-  { label: "Consultancy", value: "CONSULTANCY" },
-  { label: "Opinion", value: "OPINION" },
-  { label: "Others", value: "OTHER" },
-];
-
 const CLIENT_STATUSES = [
   { label: "Active", value: "ACTIVE" },
   { label: "Inactive", value: "INACTIVE" },
 ];
 
-const PARTNERS = [
-  "Srinivas Gogineni", "Hitesh Kumar P", "Ranganayakulu B", "Sudarshan Gupta MS",
-  "Bhargava Anumolu", "Chandrshekar B", "Krishnamohan Reddy JS",
-];
-
 const PRIORITIES = ["HIGH", "MEDIUM", "LOW"];
 const FIRMS = ["BCO", "KSR"];
-
-function labelize(value: string): string {
-  return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase());
-}
-
-function findLabel(options: { label: string; value: string }[], value: string): string {
-  return options.find((o) => o.value === value)?.label ?? labelize(value);
-}
 
 export default function Masters() {
   const [tab, setTab] = useState<"staff" | "clients">("staff");
